@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Completed 01-foundation/01-02-PLAN.md
-last_updated: "2026-03-15T00:00:00.000Z"
-last_activity: 2026-03-15 — Completed Plan 02: SpecModel and load_spec implementation (SPEC-01 through SPEC-06 GREEN)
+status: executing
+stopped_at: Completed 01-foundation/01-03-PLAN.md
+last_updated: "2026-03-14T22:55:07.834Z"
+last_activity: "2026-03-15 — Completed Plan 02: SpecModel and load_spec (SPEC-01 through SPEC-06 GREEN)"
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 67
 ---
 
@@ -51,6 +51,7 @@ Progress: [██████░░░░] 67%
 
 *Updated after each plan completion*
 | Phase 01-foundation P01 | 3 | 2 tasks | 11 files |
+| Phase 01-foundation P03 | 8 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ Recent decisions affecting current work:
 - [Phase 01-foundation]: Lazy imports inside test functions — module-level imports cause pytest collection failures when implementation files do not exist
 - [Phase 01-foundation/01-02]: All language/framework fields are plain str (no Literal/enum) — satisfies SPEC-06 language-agnostic design at the schema level
 - [Phase 01-foundation/01-02]: Empty YAML guard raises ValueError before SpecModel(**data) — prevents TypeError when yaml.safe_load returns None for empty files
+- [Phase 01-foundation]: BuildState uses transition() method for graph validation — Pydantic v2 mode=before validator info.data is empty during validate_assignment, making field_validator approach unworkable for current-status lookup
+- [Phase 01-foundation]: call_agent() accepts explicit client parameter — enables clean unit testing without module-level _client global reset; get_client() remains for production use
 
 ### Pending Todos
 
@@ -78,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T00:00:00.000Z
-Stopped at: Completed 01-foundation/01-02-PLAN.md
+Last session: 2026-03-14T22:55:07.832Z
+Stopped at: Completed 01-foundation/01-03-PLAN.md
 Resume file: None
