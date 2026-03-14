@@ -1,0 +1,3541 @@
+name: "JiraClone - Project Management Platform"
+description: >
+  A full-featured project management and issue tracking platform inspired by Jira.
+  Supports agile boards (Scrum & Kanban), backlog management, sprint planning,
+  epics, stories, tasks, bugs, sub-tasks, workflows, permissions, dashboards,
+  reporting, integrations, and real-time collaboration. Built with a Python
+  FastAPI backend and a React TypeScript frontend.
+
+language: "python"
+framework: "fastapi"
+
+# =============================================================================
+# AUTHENTICATION & AUTHORIZATION ENDPOINTS
+# =============================================================================
+endpoints:
+
+  # ── Auth ───────────────────────────────────────────────────────────────────
+  - name: "register"
+    method: "POST"
+    path: "/api/auth/register"
+    description: "Register a new user account"
+    request_schema: >
+      {
+        email: string,
+        password: string,
+        display_name: string,
+        avatar_url?: string
+      }
+    response_schema: >
+      {
+        user: { id, email, display_name, avatar_url, created_at },
+        access_token: string,
+        refresh_token: string
+      }
+
+  - name: "login"
+    method: "POST"
+    path: "/api/auth/login"
+    description: "Authenticate user and return JWT tokens"
+    request_schema: "{ email: string, password: string }"
+    response_schema: >
+      {
+        user: { id, email, display_name, avatar_url, role },
+        access_token: string,
+        refresh_token: string
+      }
+
+  - name: "logout"
+    method: "POST"
+    path: "/api/auth/logout"
+    description: "Invalidate the current session and refresh token"
+    request_schema: "{ refresh_token: string }"
+    response_schema: "{ success: true }"
+
+  - name: "refresh_token"
+    method: "POST"
+    path: "/api/auth/refresh"
+    description: "Exchange a valid refresh token for a new access token"
+    request_schema: "{ refresh_token: string }"
+    response_schema: "{ access_token: string, refresh_token: string }"
+
+  - name: "forgot_password"
+    method: "POST"
+    path: "/api/auth/forgot-password"
+    description: "Send a password reset email"
+    request_schema: "{ email: string }"
+    response_schema: "{ message: 'Reset email sent if account exists' }"
+
+  - name: "reset_password"
+    method: "POST"
+    path: "/api/auth/reset-password"
+    description: "Reset password using a token from the email"
+    request_schema: "{ token: string, new_password: string }"
+    response_schema: "{ success: true }"
+
+  - name: "oauth_callback"
+    method: "GET"
+    path: "/api/auth/oauth/{provider}/callback"
+    description: "OAuth2 callback for Google, GitHub, Microsoft, Atlassian SSO"
+    request_schema: "Query params: ?code=string&state=string"
+    response_schema: "Redirect to frontend with tokens in URL fragment"
+
+  # ── Users ──────────────────────────────────────────────────────────────────
+  - name: "get_current_user"
+    method: "GET"
+    path: "/api/users/me"
+    description: "Return the currently authenticated user's profile"
+    request_schema: "Bearer token in Authorization header"
+    response_schema: >
+      {
+        id, email, display_name, avatar_url, role, timezone,
+        notification_preferences, created_at
+      }
+
+  - name: "update_current_user"
+    method: "PATCH"
+    path: "/api/users/me"
+    description: "Update the authenticated user's profile"
+    request_schema: >
+      {
+        display_name?: string,
+        avatar_url?: string,
+        timezone?: string,
+        notification_preferences?: NotificationPreferences
+      }
+    response_schema: "{ user: User }"
+
+  - name: "list_users"
+    method: "GET"
+    path: "/api/users"
+    description: "List all users in the organization (admin/project-scoped)"
+    request_schema: "Query params: ?search=string&role=admin|member|viewer&page=int&per_page=int"
+    response_schema: "{ users: User[], total: int, page: int, per_page: int }"
+
+  - name: "get_user"
+    method: "GET"
+    path: "/api/users/{user_id}"
+    description: "Get a user's public profile"
+    request_schema: "Path param: user_id (uuid)"
+    response_schema: "{ user: User }"
+
+  - name: "deactivate_user"
+    method: "POST"
+    path: "/api/users/{user_id}/deactivate"
+    description: "Deactivate a user account (admin only)"
+    request_schema: "Path param: user_id"
+    response_schema: "{ success: true }"
+
+  - name: "upload_avatar"
+    method: "POST"
+    path: "/api/users/me/avatar"
+    description: "Upload a new avatar image"
+    request_schema: "multipart/form-data: file (image/png, image/jpeg, max 5MB)"
+    response_schema: "{ avatar_url: string }"
+
+  # ── Organizations / Workspaces ─────────────────────────────────────────────
+  - name: "create_organization"
+    method: "POST"
+    path: "/api/organizations"
+    description: "Create a new organization (workspace)"
+    request_schema: >
+      {
+        name: string,
+        slug: string,
+        description?: string,
+        logo_url?: string
+      }
+    response_schema: "{ organization: Organization }"
+
+  - name: "list_organizations"
+    method: "GET"
+    path: "/api/organizations"
+    description: "List all organizations the user belongs to"
+    request_schema: "None"
+    response_schema: "{ organizations: Organization[] }"
+
+  - name: "get_organization"
+    method: "GET"
+    path: "/api/organizations/{org_id}"
+    description: "Get organization details"
+    request_schema: "Path param: org_id"
+    response_schema: "{ organization: Organization }"
+
+  - name: "update_organization"
+    method: "PATCH"
+    path: "/api/organizations/{org_id}"
+    description: "Update organization settings"
+    request_schema: >
+      {
+        name?: string,
+        description?: string,
+        logo_url?: string,
+        default_timezone?: string,
+        settings?: OrgSettings
+      }
+    response_schema: "{ organization: Organization }"
+
+  - name: "delete_organization"
+    method: "DELETE"
+    path: "/api/organizations/{org_id}"
+    description: "Delete organization and all associated data (owner only)"
+    request_schema: "{ confirmation: string }"
+    response_schema: "{ success: true }"
+
+  - name: "invite_member"
+    method: "POST"
+    path: "/api/organizations/{org_id}/invitations"
+    description: "Invite a user to the organization"
+    request_schema: "{ email: string, role: 'admin'|'member'|'viewer' }"
+    response_schema: "{ invitation: Invitation }"
+
+  - name: "list_members"
+    method: "GET"
+    path: "/api/organizations/{org_id}/members"
+    description: "List all members of the organization"
+    request_schema: "Query params: ?role=string&search=string"
+    response_schema: "{ members: [{ user: User, role: string, joined_at: datetime }] }"
+
+  - name: "update_member_role"
+    method: "PATCH"
+    path: "/api/organizations/{org_id}/members/{user_id}"
+    description: "Change a member's role"
+    request_schema: "{ role: 'admin'|'member'|'viewer' }"
+    response_schema: "{ member: Member }"
+
+  - name: "remove_member"
+    method: "DELETE"
+    path: "/api/organizations/{org_id}/members/{user_id}"
+    description: "Remove a member from the organization"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  # ── Projects ───────────────────────────────────────────────────────────────
+  - name: "create_project"
+    method: "POST"
+    path: "/api/projects"
+    description: "Create a new project within an organization"
+    request_schema: >
+      {
+        name: string,
+        key: string (2-10 uppercase letters, e.g. 'PROJ'),
+        description?: string,
+        project_type: 'scrum'|'kanban'|'basic',
+        lead_id: uuid,
+        org_id: uuid,
+        default_assignee_id?: uuid,
+        category?: string,
+        avatar_url?: string
+      }
+    response_schema: "{ project: Project }"
+
+  - name: "list_projects"
+    method: "GET"
+    path: "/api/projects"
+    description: "List all projects accessible by the user"
+    request_schema: "Query params: ?org_id=uuid&search=string&archived=bool&page=int&per_page=int&sort=name|created_at|updated_at"
+    response_schema: "{ projects: Project[], total: int, page: int }"
+
+  - name: "get_project"
+    method: "GET"
+    path: "/api/projects/{project_id}"
+    description: "Get full project details including settings and stats"
+    request_schema: "Path param: project_id"
+    response_schema: >
+      {
+        project: Project,
+        stats: {
+          total_issues: int,
+          open_issues: int,
+          closed_issues: int,
+          active_sprint: Sprint | null
+        }
+      }
+
+  - name: "update_project"
+    method: "PATCH"
+    path: "/api/projects/{project_id}"
+    description: "Update project details and settings"
+    request_schema: >
+      {
+        name?: string,
+        description?: string,
+        lead_id?: uuid,
+        default_assignee_id?: uuid,
+        category?: string,
+        avatar_url?: string
+      }
+    response_schema: "{ project: Project }"
+
+  - name: "delete_project"
+    method: "DELETE"
+    path: "/api/projects/{project_id}"
+    description: "Delete a project and all its issues (admin only)"
+    request_schema: "{ move_issues_to?: uuid (another project) }"
+    response_schema: "{ success: true }"
+
+  - name: "archive_project"
+    method: "POST"
+    path: "/api/projects/{project_id}/archive"
+    description: "Archive a project (soft-delete, read-only)"
+    request_schema: "None"
+    response_schema: "{ project: Project }"
+
+  - name: "restore_project"
+    method: "POST"
+    path: "/api/projects/{project_id}/restore"
+    description: "Restore an archived project"
+    request_schema: "None"
+    response_schema: "{ project: Project }"
+
+  - name: "get_project_settings"
+    method: "GET"
+    path: "/api/projects/{project_id}/settings"
+    description: "Get project-specific settings (permissions, notifications, features)"
+    request_schema: "None"
+    response_schema: "{ settings: ProjectSettings }"
+
+  - name: "update_project_settings"
+    method: "PATCH"
+    path: "/api/projects/{project_id}/settings"
+    description: "Update project settings"
+    request_schema: "{ settings: Partial<ProjectSettings> }"
+    response_schema: "{ settings: ProjectSettings }"
+
+  # ── Project Roles & Permissions ────────────────────────────────────────────
+  - name: "list_project_roles"
+    method: "GET"
+    path: "/api/projects/{project_id}/roles"
+    description: "List all roles defined for the project"
+    request_schema: "None"
+    response_schema: "{ roles: ProjectRole[] }"
+
+  - name: "create_project_role"
+    method: "POST"
+    path: "/api/projects/{project_id}/roles"
+    description: "Create a custom project role with specific permissions"
+    request_schema: >
+      {
+        name: string,
+        description?: string,
+        permissions: string[] (e.g. ['issues.create', 'issues.edit', 'sprints.manage'])
+      }
+    response_schema: "{ role: ProjectRole }"
+
+  - name: "assign_project_role"
+    method: "POST"
+    path: "/api/projects/{project_id}/roles/{role_id}/members"
+    description: "Assign a user to a project role"
+    request_schema: "{ user_id: uuid }"
+    response_schema: "{ success: true }"
+
+  # ── Issues (Core) ─────────────────────────────────────────────────────────
+  - name: "create_issue"
+    method: "POST"
+    path: "/api/issues"
+    description: "Create a new issue (story, task, bug, epic, sub-task)"
+    request_schema: >
+      {
+        project_id: uuid,
+        issue_type: 'epic'|'story'|'task'|'bug'|'sub_task'|'improvement'|'new_feature',
+        summary: string,
+        description?: string (rich text / markdown),
+        priority: 'highest'|'high'|'medium'|'low'|'lowest',
+        assignee_id?: uuid,
+        reporter_id?: uuid,
+        labels?: string[],
+        components?: uuid[],
+        fix_versions?: uuid[],
+        affects_versions?: uuid[],
+        epic_id?: uuid (link to parent epic),
+        parent_id?: uuid (for sub-tasks),
+        sprint_id?: uuid,
+        story_points?: number,
+        original_estimate?: string (e.g. '2h', '3d'),
+        due_date?: date,
+        environment?: string,
+        custom_fields?: Record<string, any>,
+        attachments?: File[],
+        linked_issues?: [{ type: string, issue_id: uuid }]
+      }
+    response_schema: >
+      {
+        issue: {
+          id, key (e.g. 'PROJ-123'), summary, description, issue_type,
+          status, priority, assignee, reporter, labels, components,
+          fix_versions, affects_versions, epic, parent, sprint,
+          story_points, original_estimate, remaining_estimate,
+          time_spent, due_date, environment, custom_fields,
+          created_at, updated_at, resolved_at
+        }
+      }
+
+  - name: "list_issues"
+    method: "GET"
+    path: "/api/issues"
+    description: "List and filter issues across projects"
+    request_schema: >
+      Query params:
+        ?project_id=uuid
+        &type=epic|story|task|bug|sub_task
+        &status=open|in_progress|in_review|done|closed
+        &priority=highest|high|medium|low|lowest
+        &assignee_id=uuid
+        &reporter_id=uuid
+        &sprint_id=uuid
+        &epic_id=uuid
+        &label=string
+        &component_id=uuid
+        &fix_version_id=uuid
+        &created_after=datetime
+        &created_before=datetime
+        &updated_after=datetime
+        &due_before=date
+        &search=string (full-text search in summary & description)
+        &sort=created_at|updated_at|priority|due_date|story_points
+        &order=asc|desc
+        &page=int
+        &per_page=int
+    response_schema: >
+      {
+        issues: Issue[],
+        total: int,
+        page: int,
+        per_page: int
+      }
+
+  - name: "get_issue"
+    method: "GET"
+    path: "/api/issues/{issue_key}"
+    description: "Get full issue detail by key (e.g. PROJ-123) or id"
+    request_schema: "Path param: issue_key (string like 'PROJ-123' or uuid)"
+    response_schema: >
+      {
+        issue: Issue (full detail),
+        children: Issue[] (sub-tasks),
+        linked_issues: LinkedIssue[],
+        changelog: ChangeLogEntry[],
+        comments: Comment[],
+        attachments: Attachment[],
+        worklogs: WorkLog[],
+        watchers: User[]
+      }
+
+  - name: "update_issue"
+    method: "PATCH"
+    path: "/api/issues/{issue_key}"
+    description: "Update any field on an issue"
+    request_schema: >
+      {
+        summary?: string,
+        description?: string,
+        issue_type?: string,
+        priority?: string,
+        assignee_id?: uuid | null,
+        labels?: string[],
+        components?: uuid[],
+        fix_versions?: uuid[],
+        affects_versions?: uuid[],
+        epic_id?: uuid | null,
+        sprint_id?: uuid | null,
+        story_points?: number | null,
+        original_estimate?: string,
+        remaining_estimate?: string,
+        due_date?: date | null,
+        environment?: string,
+        custom_fields?: Record<string, any>
+      }
+    response_schema: "{ issue: Issue }"
+
+  - name: "delete_issue"
+    method: "DELETE"
+    path: "/api/issues/{issue_key}"
+    description: "Permanently delete an issue and all sub-tasks"
+    request_schema: "Query param: ?delete_subtasks=bool (default true)"
+    response_schema: "{ success: true }"
+
+  - name: "transition_issue"
+    method: "POST"
+    path: "/api/issues/{issue_key}/transitions"
+    description: "Move an issue to a new status via workflow transition"
+    request_schema: >
+      {
+        transition_id: uuid,
+        resolution?: 'done'|'wont_do'|'duplicate'|'cannot_reproduce'|'incomplete',
+        comment?: string,
+        fields?: Record<string, any> (fields required by the transition screen)
+      }
+    response_schema: "{ issue: Issue }"
+
+  - name: "get_available_transitions"
+    method: "GET"
+    path: "/api/issues/{issue_key}/transitions"
+    description: "List available workflow transitions for the issue's current status"
+    request_schema: "None"
+    response_schema: >
+      {
+        transitions: [
+          {
+            id, name, to_status: { id, name, category },
+            required_fields?: FieldDef[],
+            conditions_met: bool
+          }
+        ]
+      }
+
+  - name: "assign_issue"
+    method: "PUT"
+    path: "/api/issues/{issue_key}/assignee"
+    description: "Assign or unassign a user to/from an issue"
+    request_schema: "{ assignee_id: uuid | null }"
+    response_schema: "{ issue: Issue }"
+
+  - name: "bulk_update_issues"
+    method: "POST"
+    path: "/api/issues/bulk"
+    description: "Perform bulk operations on multiple issues"
+    request_schema: >
+      {
+        issue_keys: string[],
+        action: 'transition'|'update'|'delete'|'move',
+        fields?: Record<string, any>,
+        transition_id?: uuid,
+        target_project_id?: uuid
+      }
+    response_schema: >
+      {
+        success_count: int,
+        error_count: int,
+        errors: [{ issue_key: string, error: string }]
+      }
+
+  - name: "move_issue"
+    method: "POST"
+    path: "/api/issues/{issue_key}/move"
+    description: "Move an issue to a different project"
+    request_schema: "{ target_project_id: uuid, target_issue_type?: string }"
+    response_schema: "{ issue: Issue (with new key) }"
+
+  - name: "clone_issue"
+    method: "POST"
+    path: "/api/issues/{issue_key}/clone"
+    description: "Clone an issue with optional modifications"
+    request_schema: >
+      {
+        include_subtasks?: bool,
+        include_attachments?: bool,
+        include_links?: bool,
+        override_fields?: Record<string, any>
+      }
+    response_schema: "{ issue: Issue (new clone) }"
+
+  - name: "vote_issue"
+    method: "POST"
+    path: "/api/issues/{issue_key}/vote"
+    description: "Vote for an issue (increases priority signal)"
+    request_schema: "None"
+    response_schema: "{ votes: int }"
+
+  - name: "unvote_issue"
+    method: "DELETE"
+    path: "/api/issues/{issue_key}/vote"
+    description: "Remove vote from an issue"
+    request_schema: "None"
+    response_schema: "{ votes: int }"
+
+  - name: "watch_issue"
+    method: "POST"
+    path: "/api/issues/{issue_key}/watchers"
+    description: "Add the current user (or a specified user) as a watcher"
+    request_schema: "{ user_id?: uuid }"
+    response_schema: "{ watchers: User[] }"
+
+  - name: "unwatch_issue"
+    method: "DELETE"
+    path: "/api/issues/{issue_key}/watchers/{user_id}"
+    description: "Remove a watcher from an issue"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  - name: "list_watchers"
+    method: "GET"
+    path: "/api/issues/{issue_key}/watchers"
+    description: "List all watchers of an issue"
+    request_schema: "None"
+    response_schema: "{ watchers: User[] }"
+
+  # ── Issue Links ────────────────────────────────────────────────────────────
+  - name: "create_issue_link"
+    method: "POST"
+    path: "/api/issue-links"
+    description: "Create a link between two issues"
+    request_schema: >
+      {
+        link_type: 'blocks'|'is_blocked_by'|'clones'|'is_cloned_by'|
+                   'duplicates'|'is_duplicated_by'|'relates_to'|
+                   'causes'|'is_caused_by'|'is_child_of'|'is_parent_of',
+        inward_issue_key: string,
+        outward_issue_key: string,
+        comment?: string
+      }
+    response_schema: "{ link: IssueLink }"
+
+  - name: "delete_issue_link"
+    method: "DELETE"
+    path: "/api/issue-links/{link_id}"
+    description: "Remove a link between two issues"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  - name: "list_link_types"
+    method: "GET"
+    path: "/api/issue-link-types"
+    description: "List all available issue link types"
+    request_schema: "None"
+    response_schema: "{ link_types: IssueLinkType[] }"
+
+  # ── Comments ───────────────────────────────────────────────────────────────
+  - name: "add_comment"
+    method: "POST"
+    path: "/api/issues/{issue_key}/comments"
+    description: "Add a comment to an issue"
+    request_schema: >
+      {
+        body: string (rich text / markdown),
+        visibility?: { type: 'role'|'group', value: string },
+        mentions?: uuid[]
+      }
+    response_schema: "{ comment: Comment }"
+
+  - name: "list_comments"
+    method: "GET"
+    path: "/api/issues/{issue_key}/comments"
+    description: "List all comments on an issue"
+    request_schema: "Query params: ?order=asc|desc&page=int&per_page=int"
+    response_schema: "{ comments: Comment[], total: int }"
+
+  - name: "update_comment"
+    method: "PUT"
+    path: "/api/issues/{issue_key}/comments/{comment_id}"
+    description: "Edit an existing comment"
+    request_schema: "{ body: string, visibility?: Visibility }"
+    response_schema: "{ comment: Comment }"
+
+  - name: "delete_comment"
+    method: "DELETE"
+    path: "/api/issues/{issue_key}/comments/{comment_id}"
+    description: "Delete a comment"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  # ── Attachments ────────────────────────────────────────────────────────────
+  - name: "upload_attachment"
+    method: "POST"
+    path: "/api/issues/{issue_key}/attachments"
+    description: "Upload one or more file attachments to an issue"
+    request_schema: "multipart/form-data: files[] (max 25MB each)"
+    response_schema: "{ attachments: Attachment[] }"
+
+  - name: "get_attachment"
+    method: "GET"
+    path: "/api/attachments/{attachment_id}"
+    description: "Get attachment metadata"
+    request_schema: "None"
+    response_schema: "{ attachment: Attachment }"
+
+  - name: "download_attachment"
+    method: "GET"
+    path: "/api/attachments/{attachment_id}/content"
+    description: "Download the attachment file"
+    request_schema: "None"
+    response_schema: "Binary file stream with Content-Disposition header"
+
+  - name: "delete_attachment"
+    method: "DELETE"
+    path: "/api/attachments/{attachment_id}"
+    description: "Delete an attachment"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  # ── Work Logs (Time Tracking) ──────────────────────────────────────────────
+  - name: "add_worklog"
+    method: "POST"
+    path: "/api/issues/{issue_key}/worklogs"
+    description: "Log time spent on an issue"
+    request_schema: >
+      {
+        time_spent: string (e.g. '2h 30m'),
+        started_at: datetime,
+        description?: string,
+        adjust_estimate: 'auto'|'manual'|'leave',
+        new_estimate?: string
+      }
+    response_schema: "{ worklog: WorkLog }"
+
+  - name: "list_worklogs"
+    method: "GET"
+    path: "/api/issues/{issue_key}/worklogs"
+    description: "List all work logs for an issue"
+    request_schema: "Query params: ?author_id=uuid&page=int"
+    response_schema: "{ worklogs: WorkLog[], total_time_spent: string }"
+
+  - name: "update_worklog"
+    method: "PUT"
+    path: "/api/issues/{issue_key}/worklogs/{worklog_id}"
+    description: "Edit a work log entry"
+    request_schema: "{ time_spent?: string, started_at?: datetime, description?: string }"
+    response_schema: "{ worklog: WorkLog }"
+
+  - name: "delete_worklog"
+    method: "DELETE"
+    path: "/api/issues/{issue_key}/worklogs/{worklog_id}"
+    description: "Delete a work log entry"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  # ── Issue History / Changelog ──────────────────────────────────────────────
+  - name: "get_issue_changelog"
+    method: "GET"
+    path: "/api/issues/{issue_key}/changelog"
+    description: "Full audit history of all changes to an issue"
+    request_schema: "Query params: ?page=int&per_page=int"
+    response_schema: >
+      {
+        changelog: [
+          {
+            id, author: User, created_at: datetime,
+            items: [{ field, from_value, to_value }]
+          }
+        ],
+        total: int
+      }
+
+  # ── Sprints ────────────────────────────────────────────────────────────────
+  - name: "create_sprint"
+    method: "POST"
+    path: "/api/boards/{board_id}/sprints"
+    description: "Create a new sprint for a scrum board"
+    request_schema: >
+      {
+        name: string,
+        goal?: string,
+        start_date?: datetime,
+        end_date?: datetime
+      }
+    response_schema: "{ sprint: Sprint }"
+
+  - name: "list_sprints"
+    method: "GET"
+    path: "/api/boards/{board_id}/sprints"
+    description: "List all sprints for a board"
+    request_schema: "Query params: ?state=future|active|closed&page=int"
+    response_schema: "{ sprints: Sprint[], total: int }"
+
+  - name: "get_sprint"
+    method: "GET"
+    path: "/api/sprints/{sprint_id}"
+    description: "Get sprint details including issues"
+    request_schema: "None"
+    response_schema: >
+      {
+        sprint: Sprint,
+        issues: Issue[],
+        stats: {
+          total_points: int,
+          completed_points: int,
+          total_issues: int,
+          completed_issues: int
+        }
+      }
+
+  - name: "update_sprint"
+    method: "PATCH"
+    path: "/api/sprints/{sprint_id}"
+    description: "Update sprint details"
+    request_schema: >
+      {
+        name?: string,
+        goal?: string,
+        start_date?: datetime,
+        end_date?: datetime
+      }
+    response_schema: "{ sprint: Sprint }"
+
+  - name: "start_sprint"
+    method: "POST"
+    path: "/api/sprints/{sprint_id}/start"
+    description: "Activate a sprint (only one active sprint per board)"
+    request_schema: "{ start_date?: datetime, end_date: datetime }"
+    response_schema: "{ sprint: Sprint }"
+
+  - name: "complete_sprint"
+    method: "POST"
+    path: "/api/sprints/{sprint_id}/complete"
+    description: "Complete the active sprint, move incomplete issues"
+    request_schema: >
+      {
+        move_incomplete_to: uuid (sprint_id or backlog),
+        move_open_to?: uuid
+      }
+    response_schema: >
+      {
+        completed_sprint: Sprint,
+        completed_issues: int,
+        incomplete_issues: int,
+        moved_to: string
+      }
+
+  - name: "delete_sprint"
+    method: "DELETE"
+    path: "/api/sprints/{sprint_id}"
+    description: "Delete a sprint (moves issues to backlog)"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  - name: "add_issues_to_sprint"
+    method: "POST"
+    path: "/api/sprints/{sprint_id}/issues"
+    description: "Move issues into a sprint"
+    request_schema: "{ issue_keys: string[] }"
+    response_schema: "{ success: true, moved_count: int }"
+
+  - name: "remove_issues_from_sprint"
+    method: "POST"
+    path: "/api/sprints/{sprint_id}/issues/remove"
+    description: "Move issues out of a sprint back to backlog"
+    request_schema: "{ issue_keys: string[] }"
+    response_schema: "{ success: true, moved_count: int }"
+
+  - name: "reorder_sprint_backlog"
+    method: "PUT"
+    path: "/api/sprints/{sprint_id}/rank"
+    description: "Reorder issues within a sprint"
+    request_schema: >
+      {
+        issue_key: string,
+        rank_before?: string (issue_key),
+        rank_after?: string (issue_key)
+      }
+    response_schema: "{ success: true }"
+
+  # ── Boards ─────────────────────────────────────────────────────────────────
+  - name: "create_board"
+    method: "POST"
+    path: "/api/boards"
+    description: "Create a new board (Scrum or Kanban)"
+    request_schema: >
+      {
+        name: string,
+        type: 'scrum'|'kanban',
+        project_ids: uuid[],
+        filter_id?: uuid,
+        column_config?: ColumnConfig
+      }
+    response_schema: "{ board: Board }"
+
+  - name: "list_boards"
+    method: "GET"
+    path: "/api/boards"
+    description: "List all boards accessible by the user"
+    request_schema: "Query params: ?project_id=uuid&type=scrum|kanban&search=string"
+    response_schema: "{ boards: Board[] }"
+
+  - name: "get_board"
+    method: "GET"
+    path: "/api/boards/{board_id}"
+    description: "Get board configuration and column layout"
+    request_schema: "None"
+    response_schema: >
+      {
+        board: Board,
+        columns: [
+          {
+            id, name, status_ids: string[],
+            min_limit?: int, max_limit?: int
+          }
+        ],
+        swimlanes?: Swimlane[]
+      }
+
+  - name: "get_board_issues"
+    method: "GET"
+    path: "/api/boards/{board_id}/issues"
+    description: "Get all issues currently on the board, grouped by column"
+    request_schema: "Query params: ?assignee_id=uuid&label=string&search=string"
+    response_schema: >
+      {
+        columns: [
+          {
+            column_id, column_name,
+            issues: Issue[]
+          }
+        ]
+      }
+
+  - name: "update_board"
+    method: "PATCH"
+    path: "/api/boards/{board_id}"
+    description: "Update board settings and column configuration"
+    request_schema: >
+      {
+        name?: string,
+        column_config?: ColumnConfig,
+        swimlane_config?: SwimLaneConfig,
+        quick_filters?: QuickFilter[],
+        card_layout?: CardLayout
+      }
+    response_schema: "{ board: Board }"
+
+  - name: "delete_board"
+    method: "DELETE"
+    path: "/api/boards/{board_id}"
+    description: "Delete a board (does not delete issues)"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  - name: "move_issue_on_board"
+    method: "POST"
+    path: "/api/boards/{board_id}/issues/{issue_key}/move"
+    description: "Move an issue to a different column (triggers workflow transition)"
+    request_schema: >
+      {
+        column_id: uuid,
+        rank_before?: string,
+        rank_after?: string
+      }
+    response_schema: "{ issue: Issue }"
+
+  # ── Backlog ────────────────────────────────────────────────────────────────
+  - name: "get_backlog"
+    method: "GET"
+    path: "/api/boards/{board_id}/backlog"
+    description: "Get the backlog for a board (issues not in any active sprint)"
+    request_schema: "Query params: ?search=string&type=string&priority=string&page=int"
+    response_schema: "{ issues: Issue[], total: int }"
+
+  - name: "reorder_backlog"
+    method: "PUT"
+    path: "/api/boards/{board_id}/backlog/rank"
+    description: "Reorder issues in the backlog"
+    request_schema: >
+      {
+        issue_key: string,
+        rank_before?: string,
+        rank_after?: string
+      }
+    response_schema: "{ success: true }"
+
+  # ── Epics ──────────────────────────────────────────────────────────────────
+  - name: "list_epics"
+    method: "GET"
+    path: "/api/projects/{project_id}/epics"
+    description: "List all epics in a project"
+    request_schema: "Query params: ?status=open|done|all&search=string"
+    response_schema: "{ epics: Epic[] }"
+
+  - name: "get_epic"
+    method: "GET"
+    path: "/api/epics/{epic_key}"
+    description: "Get epic details including child issues and progress"
+    request_schema: "None"
+    response_schema: >
+      {
+        epic: Epic,
+        children: Issue[],
+        progress: {
+          total: int,
+          done: int,
+          in_progress: int,
+          to_do: int,
+          total_points: int,
+          completed_points: int,
+          percent_complete: float
+        }
+      }
+
+  - name: "add_issues_to_epic"
+    method: "POST"
+    path: "/api/epics/{epic_key}/issues"
+    description: "Link issues to an epic"
+    request_schema: "{ issue_keys: string[] }"
+    response_schema: "{ success: true }"
+
+  - name: "remove_issues_from_epic"
+    method: "POST"
+    path: "/api/epics/{epic_key}/issues/remove"
+    description: "Unlink issues from an epic"
+    request_schema: "{ issue_keys: string[] }"
+    response_schema: "{ success: true }"
+
+  # ── Versions / Releases ────────────────────────────────────────────────────
+  - name: "create_version"
+    method: "POST"
+    path: "/api/projects/{project_id}/versions"
+    description: "Create a new version/release"
+    request_schema: >
+      {
+        name: string,
+        description?: string,
+        start_date?: date,
+        release_date?: date,
+        archived?: bool
+      }
+    response_schema: "{ version: Version }"
+
+  - name: "list_versions"
+    method: "GET"
+    path: "/api/projects/{project_id}/versions"
+    description: "List all versions for a project"
+    request_schema: "Query params: ?status=unreleased|released|archived"
+    response_schema: "{ versions: Version[] }"
+
+  - name: "get_version"
+    method: "GET"
+    path: "/api/versions/{version_id}"
+    description: "Get version details with issue counts and progress"
+    request_schema: "None"
+    response_schema: >
+      {
+        version: Version,
+        progress: {
+          total_issues: int,
+          done: int,
+          in_progress: int,
+          to_do: int,
+          percent_complete: float
+        }
+      }
+
+  - name: "update_version"
+    method: "PATCH"
+    path: "/api/versions/{version_id}"
+    description: "Update version details"
+    request_schema: >
+      {
+        name?: string,
+        description?: string,
+        start_date?: date,
+        release_date?: date
+      }
+    response_schema: "{ version: Version }"
+
+  - name: "release_version"
+    method: "POST"
+    path: "/api/versions/{version_id}/release"
+    description: "Mark a version as released"
+    request_schema: "{ release_date?: date, move_open_issues_to?: uuid }"
+    response_schema: "{ version: Version }"
+
+  - name: "delete_version"
+    method: "DELETE"
+    path: "/api/versions/{version_id}"
+    description: "Delete a version (unlinks issues, does not delete them)"
+    request_schema: "{ move_fix_issues_to?: uuid, move_affects_issues_to?: uuid }"
+    response_schema: "{ success: true }"
+
+  # ── Components ─────────────────────────────────────────────────────────────
+  - name: "create_component"
+    method: "POST"
+    path: "/api/projects/{project_id}/components"
+    description: "Create a project component (logical grouping)"
+    request_schema: >
+      {
+        name: string,
+        description?: string,
+        lead_id?: uuid,
+        default_assignee: 'project_default'|'component_lead'|'unassigned'
+      }
+    response_schema: "{ component: Component }"
+
+  - name: "list_components"
+    method: "GET"
+    path: "/api/projects/{project_id}/components"
+    description: "List all components in a project"
+    request_schema: "None"
+    response_schema: "{ components: Component[] }"
+
+  - name: "update_component"
+    method: "PATCH"
+    path: "/api/components/{component_id}"
+    description: "Update a component"
+    request_schema: "{ name?: string, description?: string, lead_id?: uuid }"
+    response_schema: "{ component: Component }"
+
+  - name: "delete_component"
+    method: "DELETE"
+    path: "/api/components/{component_id}"
+    description: "Delete a component"
+    request_schema: "{ move_issues_to?: uuid }"
+    response_schema: "{ success: true }"
+
+  # ── Labels ─────────────────────────────────────────────────────────────────
+  - name: "list_labels"
+    method: "GET"
+    path: "/api/projects/{project_id}/labels"
+    description: "List all labels used in a project"
+    request_schema: "Query params: ?search=string"
+    response_schema: "{ labels: [{ name: string, issue_count: int }] }"
+
+  # ── Workflows ──────────────────────────────────────────────────────────────
+  - name: "create_workflow"
+    method: "POST"
+    path: "/api/workflows"
+    description: "Create a custom workflow with statuses and transitions"
+    request_schema: >
+      {
+        name: string,
+        description?: string,
+        statuses: [
+          {
+            id: string,
+            name: string,
+            category: 'to_do'|'in_progress'|'done',
+            color?: string
+          }
+        ],
+        transitions: [
+          {
+            id: string,
+            name: string,
+            from_status: string | 'any',
+            to_status: string,
+            conditions?: TransitionCondition[],
+            validators?: TransitionValidator[],
+            post_functions?: PostFunction[]
+          }
+        ]
+      }
+    response_schema: "{ workflow: Workflow }"
+
+  - name: "list_workflows"
+    method: "GET"
+    path: "/api/workflows"
+    description: "List all workflows"
+    request_schema: "Query params: ?search=string&active=bool"
+    response_schema: "{ workflows: Workflow[] }"
+
+  - name: "get_workflow"
+    method: "GET"
+    path: "/api/workflows/{workflow_id}"
+    description: "Get full workflow definition"
+    request_schema: "None"
+    response_schema: "{ workflow: Workflow (full with statuses, transitions, rules) }"
+
+  - name: "update_workflow"
+    method: "PUT"
+    path: "/api/workflows/{workflow_id}"
+    description: "Update workflow statuses and transitions"
+    request_schema: "Same as create_workflow"
+    response_schema: "{ workflow: Workflow }"
+
+  - name: "delete_workflow"
+    method: "DELETE"
+    path: "/api/workflows/{workflow_id}"
+    description: "Delete an unused workflow"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  # ── Workflow Schemes ───────────────────────────────────────────────────────
+  - name: "create_workflow_scheme"
+    method: "POST"
+    path: "/api/workflow-schemes"
+    description: "Map issue types to workflows for a project"
+    request_schema: >
+      {
+        name: string,
+        description?: string,
+        default_workflow_id: uuid,
+        issue_type_mappings?: [{ issue_type: string, workflow_id: uuid }]
+      }
+    response_schema: "{ scheme: WorkflowScheme }"
+
+  - name: "assign_workflow_scheme"
+    method: "PUT"
+    path: "/api/projects/{project_id}/workflow-scheme"
+    description: "Assign a workflow scheme to a project"
+    request_schema: "{ scheme_id: uuid }"
+    response_schema: "{ success: true }"
+
+  # ── Statuses ───────────────────────────────────────────────────────────────
+  - name: "list_statuses"
+    method: "GET"
+    path: "/api/statuses"
+    description: "List all statuses across the system"
+    request_schema: "Query params: ?project_id=uuid"
+    response_schema: >
+      {
+        statuses: [
+          { id, name, description, category: 'to_do'|'in_progress'|'done', color, icon }
+        ]
+      }
+
+  - name: "create_status"
+    method: "POST"
+    path: "/api/statuses"
+    description: "Create a new status"
+    request_schema: "{ name: string, description?: string, category: string, color?: string }"
+    response_schema: "{ status: Status }"
+
+  # ── Custom Fields ──────────────────────────────────────────────────────────
+  - name: "create_custom_field"
+    method: "POST"
+    path: "/api/custom-fields"
+    description: "Create a custom field for issues"
+    request_schema: >
+      {
+        name: string,
+        type: 'text'|'number'|'date'|'datetime'|'select'|'multiselect'|
+              'user'|'url'|'checkbox'|'textarea'|'radio'|'cascading_select',
+        description?: string,
+        options?: string[] (for select types),
+        default_value?: any,
+        required?: bool,
+        searchable?: bool,
+        project_ids?: uuid[] (scope to specific projects, null = global)
+      }
+    response_schema: "{ custom_field: CustomField }"
+
+  - name: "list_custom_fields"
+    method: "GET"
+    path: "/api/custom-fields"
+    description: "List all custom fields"
+    request_schema: "Query params: ?project_id=uuid&type=string"
+    response_schema: "{ custom_fields: CustomField[] }"
+
+  - name: "update_custom_field"
+    method: "PATCH"
+    path: "/api/custom-fields/{field_id}"
+    description: "Update a custom field definition"
+    request_schema: "{ name?: string, description?: string, options?: string[] }"
+    response_schema: "{ custom_field: CustomField }"
+
+  - name: "delete_custom_field"
+    method: "DELETE"
+    path: "/api/custom-fields/{field_id}"
+    description: "Delete a custom field (removes data from all issues)"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  # ── Screens & Field Configurations ─────────────────────────────────────────
+  - name: "create_screen"
+    method: "POST"
+    path: "/api/screens"
+    description: "Create a screen (form layout for create/edit/transition views)"
+    request_schema: >
+      {
+        name: string,
+        description?: string,
+        tabs: [
+          {
+            name: string,
+            fields: [{ field_id: string, required?: bool, order: int }]
+          }
+        ]
+      }
+    response_schema: "{ screen: Screen }"
+
+  - name: "list_screens"
+    method: "GET"
+    path: "/api/screens"
+    description: "List all screens"
+    request_schema: "None"
+    response_schema: "{ screens: Screen[] }"
+
+  - name: "create_screen_scheme"
+    method: "POST"
+    path: "/api/screen-schemes"
+    description: "Map operations (create, edit, view) to screens"
+    request_schema: >
+      {
+        name: string,
+        screens: {
+          create: uuid,
+          edit: uuid,
+          view: uuid,
+          default: uuid
+        }
+      }
+    response_schema: "{ scheme: ScreenScheme }"
+
+  # ── Issue Type Schemes ─────────────────────────────────────────────────────
+  - name: "create_issue_type_scheme"
+    method: "POST"
+    path: "/api/issue-type-schemes"
+    description: "Define which issue types are available in a project"
+    request_schema: >
+      {
+        name: string,
+        issue_types: string[],
+        default_issue_type: string
+      }
+    response_schema: "{ scheme: IssueTypeScheme }"
+
+  - name: "list_issue_types"
+    method: "GET"
+    path: "/api/issue-types"
+    description: "List all issue types (global and project-specific)"
+    request_schema: "Query params: ?project_id=uuid"
+    response_schema: >
+      {
+        issue_types: [
+          { id, name, description, icon_url, subtask: bool, color }
+        ]
+      }
+
+  - name: "create_issue_type"
+    method: "POST"
+    path: "/api/issue-types"
+    description: "Create a custom issue type"
+    request_schema: >
+      {
+        name: string,
+        description?: string,
+        type: 'standard'|'subtask',
+        icon_url?: string,
+        color?: string
+      }
+    response_schema: "{ issue_type: IssueType }"
+
+  # ── Priority Schemes ───────────────────────────────────────────────────────
+  - name: "list_priorities"
+    method: "GET"
+    path: "/api/priorities"
+    description: "List all priority levels"
+    request_schema: "None"
+    response_schema: >
+      {
+        priorities: [
+          { id, name, description, icon_url, color, order }
+        ]
+      }
+
+  - name: "create_priority"
+    method: "POST"
+    path: "/api/priorities"
+    description: "Create a new priority level"
+    request_schema: "{ name: string, description?: string, color: string, icon_url?: string }"
+    response_schema: "{ priority: Priority }"
+
+  # ── Filters & Saved Searches ───────────────────────────────────────────────
+  - name: "create_filter"
+    method: "POST"
+    path: "/api/filters"
+    description: "Save a JQL/filter query for reuse"
+    request_schema: >
+      {
+        name: string,
+        description?: string,
+        jql: string,
+        favorite?: bool,
+        shared_with?: [{ type: 'project'|'group'|'public', id?: uuid }]
+      }
+    response_schema: "{ filter: Filter }"
+
+  - name: "list_filters"
+    method: "GET"
+    path: "/api/filters"
+    description: "List user's saved and favorite filters"
+    request_schema: "Query params: ?type=my|favorite|popular&search=string"
+    response_schema: "{ filters: Filter[] }"
+
+  - name: "get_filter"
+    method: "GET"
+    path: "/api/filters/{filter_id}"
+    description: "Get filter details and execute the JQL"
+    request_schema: "None"
+    response_schema: "{ filter: Filter, issues: Issue[], total: int }"
+
+  - name: "update_filter"
+    method: "PUT"
+    path: "/api/filters/{filter_id}"
+    description: "Update a saved filter"
+    request_schema: "{ name?: string, jql?: string, description?: string }"
+    response_schema: "{ filter: Filter }"
+
+  - name: "delete_filter"
+    method: "DELETE"
+    path: "/api/filters/{filter_id}"
+    description: "Delete a saved filter"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  # ── JQL Search ─────────────────────────────────────────────────────────────
+  - name: "search_jql"
+    method: "POST"
+    path: "/api/search"
+    description: "Execute a JQL (Jira Query Language) search"
+    request_schema: >
+      {
+        jql: string (e.g. "project = PROJ AND status = 'In Progress' AND assignee = currentUser() ORDER BY priority DESC"),
+        fields?: string[] (fields to return),
+        expand?: string[] ('changelog', 'renderedFields', 'transitions'),
+        max_results?: int,
+        start_at?: int
+      }
+    response_schema: >
+      {
+        issues: Issue[],
+        total: int,
+        start_at: int,
+        max_results: int
+      }
+
+  - name: "validate_jql"
+    method: "POST"
+    path: "/api/search/validate"
+    description: "Validate a JQL query without executing it"
+    request_schema: "{ jql: string }"
+    response_schema: "{ valid: bool, errors?: string[], suggestions?: string[] }"
+
+  - name: "autocomplete_jql"
+    method: "GET"
+    path: "/api/search/autocomplete"
+    description: "Get JQL field and value suggestions"
+    request_schema: "Query params: ?partial=string&field=string"
+    response_schema: "{ suggestions: [{ value: string, display: string }] }"
+
+  # ── Dashboards ─────────────────────────────────────────────────────────────
+  - name: "create_dashboard"
+    method: "POST"
+    path: "/api/dashboards"
+    description: "Create a custom dashboard"
+    request_schema: >
+      {
+        name: string,
+        description?: string,
+        layout: '1_column'|'2_column'|'3_column'|'2_1_split'|'1_2_split',
+        shared_with?: [{ type: 'project'|'group'|'public', id?: uuid }]
+      }
+    response_schema: "{ dashboard: Dashboard }"
+
+  - name: "list_dashboards"
+    method: "GET"
+    path: "/api/dashboards"
+    description: "List all dashboards"
+    request_schema: "Query params: ?type=my|shared|favorite"
+    response_schema: "{ dashboards: Dashboard[] }"
+
+  - name: "get_dashboard"
+    method: "GET"
+    path: "/api/dashboards/{dashboard_id}"
+    description: "Get dashboard with all gadget data"
+    request_schema: "None"
+    response_schema: "{ dashboard: Dashboard, gadgets: Gadget[] }"
+
+  - name: "update_dashboard"
+    method: "PATCH"
+    path: "/api/dashboards/{dashboard_id}"
+    description: "Update dashboard layout and settings"
+    request_schema: "{ name?: string, layout?: string, shared_with?: ShareConfig[] }"
+    response_schema: "{ dashboard: Dashboard }"
+
+  - name: "delete_dashboard"
+    method: "DELETE"
+    path: "/api/dashboards/{dashboard_id}"
+    description: "Delete a dashboard"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  - name: "add_gadget"
+    method: "POST"
+    path: "/api/dashboards/{dashboard_id}/gadgets"
+    description: "Add a gadget/widget to a dashboard"
+    request_schema: >
+      {
+        type: 'assigned_to_me'|'filter_results'|'pie_chart'|'bar_chart'|
+              'burndown'|'velocity'|'sprint_health'|'created_vs_resolved'|
+              'recent_activity'|'worklog_summary'|'two_dimensional_filter'|
+              'sprint_burndown'|'epic_burndown'|'cumulative_flow'|
+              'average_age'|'resolution_time'|'custom_jql',
+        title?: string,
+        position: { column: int, row: int },
+        config: Record<string, any> (gadget-specific configuration)
+      }
+    response_schema: "{ gadget: Gadget }"
+
+  - name: "update_gadget"
+    method: "PATCH"
+    path: "/api/dashboards/{dashboard_id}/gadgets/{gadget_id}"
+    description: "Update gadget position or configuration"
+    request_schema: "{ position?: Position, config?: Record<string, any>, title?: string }"
+    response_schema: "{ gadget: Gadget }"
+
+  - name: "remove_gadget"
+    method: "DELETE"
+    path: "/api/dashboards/{dashboard_id}/gadgets/{gadget_id}"
+    description: "Remove a gadget from a dashboard"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  # ── Reports ────────────────────────────────────────────────────────────────
+  - name: "get_burndown_chart"
+    method: "GET"
+    path: "/api/reports/burndown"
+    description: "Get sprint burndown chart data"
+    request_schema: "Query params: ?sprint_id=uuid&metric=story_points|issue_count"
+    response_schema: >
+      {
+        sprint: Sprint,
+        ideal_burndown: [{ date, remaining }],
+        actual_burndown: [{ date, remaining, scope_change }],
+        scope_changes: [{ date, added: int, removed: int }]
+      }
+
+  - name: "get_velocity_chart"
+    method: "GET"
+    path: "/api/reports/velocity"
+    description: "Get velocity chart data across sprints"
+    request_schema: "Query params: ?board_id=uuid&last_n_sprints=int"
+    response_schema: >
+      {
+        sprints: [
+          {
+            sprint: Sprint,
+            committed: int,
+            completed: int
+          }
+        ],
+        average_velocity: float
+      }
+
+  - name: "get_cumulative_flow"
+    method: "GET"
+    path: "/api/reports/cumulative-flow"
+    description: "Get cumulative flow diagram data"
+    request_schema: "Query params: ?board_id=uuid&from=date&to=date"
+    response_schema: >
+      {
+        dates: date[],
+        statuses: [
+          {
+            name: string,
+            color: string,
+            counts: int[] (one per date)
+          }
+        ]
+      }
+
+  - name: "get_control_chart"
+    method: "GET"
+    path: "/api/reports/control-chart"
+    description: "Get cycle time / lead time control chart data"
+    request_schema: "Query params: ?board_id=uuid&from=date&to=date"
+    response_schema: >
+      {
+        issues: [
+          { key, summary, cycle_time_days: float, completed_at: datetime }
+        ],
+        rolling_average: [{ date, avg_cycle_time: float }],
+        std_dev: float
+      }
+
+  - name: "get_epic_report"
+    method: "GET"
+    path: "/api/reports/epic"
+    description: "Get epic progress report"
+    request_schema: "Query params: ?epic_key=string"
+    response_schema: >
+      {
+        epic: Epic,
+        completed_issues: int,
+        incomplete_issues: int,
+        total_story_points: int,
+        completed_story_points: int,
+        burndown: [{ date, remaining }],
+        sprints: [{ sprint, completed: int, added: int }]
+      }
+
+  - name: "get_version_report"
+    method: "GET"
+    path: "/api/reports/version"
+    description: "Get release version progress report"
+    request_schema: "Query params: ?version_id=uuid"
+    response_schema: >
+      {
+        version: Version,
+        issues_by_status: Record<string, int>,
+        burndown: [{ date, remaining }],
+        predicted_completion: date | null
+      }
+
+  - name: "get_sprint_report"
+    method: "GET"
+    path: "/api/reports/sprint"
+    description: "Get completed sprint summary report"
+    request_schema: "Query params: ?sprint_id=uuid"
+    response_schema: >
+      {
+        sprint: Sprint,
+        completed_issues: Issue[],
+        incomplete_issues: Issue[],
+        removed_issues: Issue[],
+        added_during_sprint: Issue[],
+        committed_points: int,
+        completed_points: int,
+        added_points: int
+      }
+
+  - name: "get_created_vs_resolved"
+    method: "GET"
+    path: "/api/reports/created-vs-resolved"
+    description: "Created vs Resolved chart data"
+    request_schema: "Query params: ?project_id=uuid&from=date&to=date&period=day|week|month"
+    response_schema: >
+      {
+        periods: [
+          { period: string, created: int, resolved: int }
+        ]
+      }
+
+  - name: "get_average_age_report"
+    method: "GET"
+    path: "/api/reports/average-age"
+    description: "Average age of unresolved issues"
+    request_schema: "Query params: ?project_id=uuid&period=day|week|month"
+    response_schema: >
+      {
+        periods: [
+          { period: string, average_age_days: float, issue_count: int }
+        ]
+      }
+
+  - name: "get_resolution_time_report"
+    method: "GET"
+    path: "/api/reports/resolution-time"
+    description: "Average time to resolve issues"
+    request_schema: "Query params: ?project_id=uuid&period=day|week|month"
+    response_schema: >
+      {
+        periods: [
+          { period: string, avg_resolution_days: float, median_days: float }
+        ]
+      }
+
+  - name: "get_workload_report"
+    method: "GET"
+    path: "/api/reports/workload"
+    description: "Team workload pie charts by assignee"
+    request_schema: "Query params: ?project_id=uuid&sprint_id=uuid"
+    response_schema: >
+      {
+        assignees: [
+          {
+            user: User,
+            total_issues: int,
+            total_points: int,
+            by_status: Record<string, int>
+          }
+        ]
+      }
+
+  # ── Roadmap / Timeline ────────────────────────────────────────────────────
+  - name: "get_roadmap"
+    method: "GET"
+    path: "/api/projects/{project_id}/roadmap"
+    description: "Get project roadmap with epics displayed as timeline bars"
+    request_schema: "Query params: ?from=date&to=date&include_versions=bool"
+    response_schema: >
+      {
+        epics: [
+          {
+            key, summary, status, color,
+            start_date, due_date,
+            progress_percent: float,
+            children_count: int,
+            children_done: int
+          }
+        ],
+        versions: [
+          { id, name, release_date, status }
+        ]
+      }
+
+  - name: "update_roadmap_dates"
+    method: "PATCH"
+    path: "/api/projects/{project_id}/roadmap/{epic_key}"
+    description: "Update epic start/end dates from the roadmap view (drag & drop)"
+    request_schema: "{ start_date?: date, due_date?: date }"
+    response_schema: "{ epic: Epic }"
+
+  # ── Notifications ──────────────────────────────────────────────────────────
+  - name: "list_notifications"
+    method: "GET"
+    path: "/api/notifications"
+    description: "List notifications for the current user"
+    request_schema: "Query params: ?read=bool&type=string&page=int&per_page=int"
+    response_schema: >
+      {
+        notifications: [
+          {
+            id, type, title, message, issue_key?, project_id?,
+            actor: User, read: bool, created_at
+          }
+        ],
+        unread_count: int,
+        total: int
+      }
+
+  - name: "mark_notification_read"
+    method: "PATCH"
+    path: "/api/notifications/{notification_id}"
+    description: "Mark a notification as read"
+    request_schema: "{ read: true }"
+    response_schema: "{ success: true }"
+
+  - name: "mark_all_notifications_read"
+    method: "POST"
+    path: "/api/notifications/mark-all-read"
+    description: "Mark all notifications as read"
+    request_schema: "None"
+    response_schema: "{ success: true, updated_count: int }"
+
+  - name: "update_notification_preferences"
+    method: "PUT"
+    path: "/api/notifications/preferences"
+    description: "Configure notification settings per event type"
+    request_schema: >
+      {
+        preferences: [
+          {
+            event: 'issue_assigned'|'issue_updated'|'comment_added'|
+                   'mention'|'sprint_started'|'sprint_completed'|
+                   'issue_transitioned'|'watcher_update',
+            channels: {
+              in_app: bool,
+              email: bool,
+              slack?: bool
+            }
+          }
+        ]
+      }
+    response_schema: "{ preferences: NotificationPreference[] }"
+
+  # ── Activity Stream ────────────────────────────────────────────────────────
+  - name: "get_activity_stream"
+    method: "GET"
+    path: "/api/activity"
+    description: "Get activity feed (global, project, or issue level)"
+    request_schema: >
+      Query params:
+        ?scope=global|project|issue
+        &project_id=uuid
+        &issue_key=string
+        &user_id=uuid
+        &page=int
+        &per_page=int
+    response_schema: >
+      {
+        activities: [
+          {
+            id, type, actor: User, target: { type, key, title },
+            changes: ChangeItem[], comment?: string, created_at
+          }
+        ],
+        total: int
+      }
+
+  # ── Automation Rules ───────────────────────────────────────────────────────
+  - name: "create_automation_rule"
+    method: "POST"
+    path: "/api/automations"
+    description: "Create an automation rule (trigger → conditions → actions)"
+    request_schema: >
+      {
+        name: string,
+        project_id?: uuid (null = global),
+        enabled: bool,
+        trigger: {
+          type: 'issue_created'|'issue_updated'|'issue_transitioned'|
+                'comment_added'|'sprint_started'|'sprint_completed'|
+                'version_released'|'scheduled'|'field_value_changed'|
+                'worklog_added'|'manual',
+          config: Record<string, any>
+        },
+        conditions?: [
+          {
+            type: 'jql'|'field_value'|'user_condition'|'issue_type'|
+                  'priority'|'project'|'status_category',
+            config: Record<string, any>
+          }
+        ],
+        actions: [
+          {
+            type: 'transition_issue'|'edit_issue'|'add_comment'|
+                  'send_email'|'send_slack'|'assign_issue'|
+                  'add_label'|'remove_label'|'create_sub_task'|
+                  'link_issues'|'send_webhook'|'log_work',
+            config: Record<string, any>
+          }
+        ]
+      }
+    response_schema: "{ rule: AutomationRule }"
+
+  - name: "list_automation_rules"
+    method: "GET"
+    path: "/api/automations"
+    description: "List all automation rules"
+    request_schema: "Query params: ?project_id=uuid&enabled=bool"
+    response_schema: "{ rules: AutomationRule[] }"
+
+  - name: "update_automation_rule"
+    method: "PATCH"
+    path: "/api/automations/{rule_id}"
+    description: "Update an automation rule"
+    request_schema: "Same as create_automation_rule (partial)"
+    response_schema: "{ rule: AutomationRule }"
+
+  - name: "delete_automation_rule"
+    method: "DELETE"
+    path: "/api/automations/{rule_id}"
+    description: "Delete an automation rule"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  - name: "get_automation_logs"
+    method: "GET"
+    path: "/api/automations/{rule_id}/logs"
+    description: "Get execution logs for an automation rule"
+    request_schema: "Query params: ?status=success|error&page=int"
+    response_schema: >
+      {
+        logs: [
+          { id, rule_id, trigger_issue_key, status, started_at,
+            completed_at, actions_executed: int, error?: string }
+        ]
+      }
+
+  - name: "run_automation_rule"
+    method: "POST"
+    path: "/api/automations/{rule_id}/run"
+    description: "Manually trigger an automation rule"
+    request_schema: "{ issue_keys?: string[] }"
+    response_schema: "{ execution_id: uuid, status: 'queued' }"
+
+  # ── Webhooks ───────────────────────────────────────────────────────────────
+  - name: "create_webhook"
+    method: "POST"
+    path: "/api/webhooks"
+    description: "Register a webhook for event notifications"
+    request_schema: >
+      {
+        name: string,
+        url: string,
+        events: string[] (e.g. ['issue:created', 'issue:updated', 'sprint:started']),
+        project_ids?: uuid[],
+        secret?: string,
+        active?: bool
+      }
+    response_schema: "{ webhook: Webhook }"
+
+  - name: "list_webhooks"
+    method: "GET"
+    path: "/api/webhooks"
+    description: "List registered webhooks"
+    request_schema: "None"
+    response_schema: "{ webhooks: Webhook[] }"
+
+  - name: "update_webhook"
+    method: "PATCH"
+    path: "/api/webhooks/{webhook_id}"
+    description: "Update webhook configuration"
+    request_schema: "{ url?: string, events?: string[], active?: bool }"
+    response_schema: "{ webhook: Webhook }"
+
+  - name: "delete_webhook"
+    method: "DELETE"
+    path: "/api/webhooks/{webhook_id}"
+    description: "Delete a webhook"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  - name: "get_webhook_logs"
+    method: "GET"
+    path: "/api/webhooks/{webhook_id}/logs"
+    description: "Get delivery logs for a webhook"
+    request_schema: "Query params: ?status=success|failed&page=int"
+    response_schema: >
+      {
+        deliveries: [
+          { id, event, status_code, response_time_ms,
+            success: bool, attempted_at, payload_size }
+        ]
+      }
+
+  # ── Permissions ────────────────────────────────────────────────────────────
+  - name: "list_permissions"
+    method: "GET"
+    path: "/api/permissions"
+    description: "List all available system permissions"
+    request_schema: "None"
+    response_schema: >
+      {
+        permissions: [
+          { key: string, name: string, description: string, category: string }
+        ]
+      }
+
+  - name: "create_permission_scheme"
+    method: "POST"
+    path: "/api/permission-schemes"
+    description: "Create a permission scheme mapping permissions to roles/groups"
+    request_schema: >
+      {
+        name: string,
+        description?: string,
+        grants: [
+          { permission: string, holder: { type: 'role'|'group'|'user', id: string } }
+        ]
+      }
+    response_schema: "{ scheme: PermissionScheme }"
+
+  - name: "check_permissions"
+    method: "GET"
+    path: "/api/permissions/check"
+    description: "Check if the current user has specific permissions"
+    request_schema: "Query params: ?project_id=uuid&permissions=string (comma-separated)"
+    response_schema: "{ permissions: Record<string, bool> }"
+
+  # ── Audit Log ──────────────────────────────────────────────────────────────
+  - name: "get_audit_log"
+    method: "GET"
+    path: "/api/audit-log"
+    description: "Get system audit log entries (admin only)"
+    request_schema: >
+      Query params:
+        ?from=datetime&to=datetime
+        &user_id=uuid
+        &event_type=string
+        &entity_type=issue|project|user|workflow|permission
+        &page=int&per_page=int
+    response_schema: >
+      {
+        entries: [
+          {
+            id, timestamp, actor: User,
+            event: string, entity: { type, id, name },
+            changes: ChangeItem[], ip_address?: string
+          }
+        ],
+        total: int
+      }
+
+  # ── Apps / Marketplace / Integrations ──────────────────────────────────────
+  - name: "list_installed_apps"
+    method: "GET"
+    path: "/api/apps"
+    description: "List all installed marketplace apps"
+    request_schema: "None"
+    response_schema: "{ apps: App[] }"
+
+  - name: "install_app"
+    method: "POST"
+    path: "/api/apps"
+    description: "Install an app from the marketplace"
+    request_schema: "{ app_key: string, config?: Record<string, any> }"
+    response_schema: "{ app: App }"
+
+  - name: "uninstall_app"
+    method: "DELETE"
+    path: "/api/apps/{app_id}"
+    description: "Uninstall an app"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+  - name: "list_marketplace_apps"
+    method: "GET"
+    path: "/api/marketplace"
+    description: "Browse available apps in the marketplace"
+    request_schema: "Query params: ?category=string&search=string&page=int"
+    response_schema: >
+      {
+        apps: [
+          { key, name, description, vendor, rating, installs, icon_url,
+            categories, pricing }
+        ]
+      }
+
+  # ── Git Integration (Development Panel) ───────────────────────────────────
+  - name: "list_dev_info"
+    method: "GET"
+    path: "/api/issues/{issue_key}/dev-info"
+    description: "Get all development information linked to an issue (commits, PRs, branches)"
+    request_schema: "None"
+    response_schema: >
+      {
+        commits: [
+          { hash, message, author, repo, timestamp, url }
+        ],
+        pull_requests: [
+          { id, title, status, author, source_branch, target_branch, repo, url }
+        ],
+        branches: [
+          { name, repo, url, last_commit }
+        ],
+        builds: [
+          { id, status, pipeline, started_at, completed_at, url }
+        ],
+        deployments: [
+          { id, environment, status, version, deployed_at, url }
+        ]
+      }
+
+  - name: "create_dev_info"
+    method: "POST"
+    path: "/api/dev-info"
+    description: "Push development information (used by CI/CD integrations)"
+    request_schema: >
+      {
+        issue_keys: string[],
+        type: 'commit'|'branch'|'pull_request'|'build'|'deployment',
+        data: DevInfoPayload
+      }
+    response_schema: "{ success: true }"
+
+  # ── Tempo / Time Tracking ─────────────────────────────────────────────────
+  - name: "get_timesheet"
+    method: "GET"
+    path: "/api/timesheets"
+    description: "Get timesheet view for a user over a date range"
+    request_schema: "Query params: ?user_id=uuid&from=date&to=date"
+    response_schema: >
+      {
+        user: User,
+        days: [
+          {
+            date: date,
+            total_seconds: int,
+            worklogs: [{ issue_key, description, seconds, started_at }]
+          }
+        ],
+        total_seconds: int,
+        required_seconds: int
+      }
+
+  - name: "approve_timesheet"
+    method: "POST"
+    path: "/api/timesheets/approve"
+    description: "Approve a team member's timesheet (manager action)"
+    request_schema: "{ user_id: uuid, from: date, to: date, status: 'approved'|'rejected', comment?: string }"
+    response_schema: "{ success: true }"
+
+  # ── Real-Time / WebSocket ──────────────────────────────────────────────────
+  - name: "websocket_connect"
+    method: "WS"
+    path: "/ws"
+    description: "WebSocket endpoint for real-time updates"
+    request_schema: >
+      Subscribe to channels:
+        { action: 'subscribe', channels: ['issue:PROJ-123', 'board:uuid', 'sprint:uuid', 'project:uuid'] }
+      Unsubscribe:
+        { action: 'unsubscribe', channels: [...] }
+    response_schema: >
+      Events pushed:
+        { event: 'issue_updated', data: { issue_key, changes, actor } }
+        { event: 'comment_added', data: { issue_key, comment } }
+        { event: 'board_updated', data: { board_id, column_changes } }
+        { event: 'sprint_updated', data: { sprint_id, changes } }
+        { event: 'user_typing', data: { issue_key, user_id, field } }
+        { event: 'notification', data: Notification }
+
+  # ── System / Admin ─────────────────────────────────────────────────────────
+  - name: "get_system_info"
+    method: "GET"
+    path: "/api/system/info"
+    description: "Get system health and version information"
+    request_schema: "None"
+    response_schema: >
+      {
+        version: string,
+        build_number: string,
+        database_status: 'connected'|'error',
+        uptime_seconds: int,
+        active_users: int,
+        total_issues: int,
+        storage_used_bytes: int
+      }
+
+  - name: "get_system_config"
+    method: "GET"
+    path: "/api/system/config"
+    description: "Get global system configuration (admin only)"
+    request_schema: "None"
+    response_schema: "{ config: SystemConfig }"
+
+  - name: "update_system_config"
+    method: "PATCH"
+    path: "/api/system/config"
+    description: "Update global system settings"
+    request_schema: >
+      {
+        base_url?: string,
+        default_language?: string,
+        session_timeout_minutes?: int,
+        max_attachment_size_mb?: int,
+        allow_public_signup?: bool,
+        require_2fa?: bool,
+        email_config?: EmailConfig
+      }
+    response_schema: "{ config: SystemConfig }"
+
+  - name: "export_project_data"
+    method: "POST"
+    path: "/api/system/export"
+    description: "Export project data (backup or migration)"
+    request_schema: >
+      {
+        project_ids: uuid[],
+        format: 'json'|'csv'|'xml',
+        include: string[] ('issues', 'comments', 'attachments', 'worklogs', 'history')
+      }
+    response_schema: "{ export_id: uuid, status: 'processing', download_url?: string }"
+
+  - name: "import_data"
+    method: "POST"
+    path: "/api/system/import"
+    description: "Import data from another system (Jira, Trello, Asana, CSV)"
+    request_schema: >
+      {
+        source: 'jira_cloud'|'jira_server'|'trello'|'asana'|'csv'|'json',
+        config: ImportConfig,
+        file?: File (for file-based imports)
+      }
+    response_schema: "{ import_id: uuid, status: 'processing' }"
+
+  - name: "get_import_status"
+    method: "GET"
+    path: "/api/system/import/{import_id}"
+    description: "Check import progress"
+    request_schema: "None"
+    response_schema: >
+      {
+        status: 'processing'|'completed'|'failed',
+        progress_percent: int,
+        items_imported: int,
+        errors: string[]
+      }
+
+  # ── Trash / Recycle Bin ────────────────────────────────────────────────────
+  - name: "list_trash"
+    method: "GET"
+    path: "/api/trash"
+    description: "List recently deleted items (recoverable within 30 days)"
+    request_schema: "Query params: ?type=issue|project|sprint&page=int"
+    response_schema: >
+      {
+        items: [
+          { id, type, name, deleted_by: User, deleted_at, expires_at }
+        ]
+      }
+
+  - name: "restore_from_trash"
+    method: "POST"
+    path: "/api/trash/{item_id}/restore"
+    description: "Restore a deleted item from trash"
+    request_schema: "None"
+    response_schema: "{ success: true, restored_item: { type, id, name } }"
+
+  - name: "permanently_delete"
+    method: "DELETE"
+    path: "/api/trash/{item_id}"
+    description: "Permanently delete an item from trash (irreversible)"
+    request_schema: "None"
+    response_schema: "{ success: true }"
+
+
+# =============================================================================
+# FRONTEND COMPONENTS
+# =============================================================================
+components:
+
+  # ── Layout & Navigation ────────────────────────────────────────────────────
+  - name: "AppShell"
+    props:
+      children: "ReactNode"
+    behavior: >
+      Top-level layout: left sidebar navigation, top header bar,
+      main content area. Handles responsive collapse of sidebar on mobile.
+      Contains global search, user avatar menu, notification bell,
+      help button, and create button.
+
+  - name: "Sidebar"
+    props:
+      current_project: "Project | null"
+      collapsed: "bool"
+      onToggle: "() => void"
+    behavior: >
+      Left navigation panel with: project selector dropdown, planning
+      section (backlog, board, roadmap, reports), project pages section
+      (issues, components, releases), shortcuts to dashboards and filters,
+      collapsible for more screen space. Highlights current page.
+      Shows recent projects and starred items.
+
+  - name: "TopNavBar"
+    props:
+      user: "User"
+      notifications_count: "int"
+    behavior: >
+      Horizontal bar at top: logo/home link, global quick-search (Cmd+K),
+      create issue button (global), apps menu, notification bell with count,
+      user avatar dropdown (profile, settings, switch org, logout).
+
+  - name: "GlobalSearch"
+    props:
+      onSearch: "(query: string) => void"
+      onSelect: "(result: SearchResult) => void"
+    behavior: >
+      Command palette style (Cmd+K). Searches issues, projects, boards,
+      people, filters. Shows recent searches. Supports advanced JQL mode.
+      Autocompletes issue keys (PROJ-xxx). Keyboard navigable.
+
+  - name: "BreadcrumbBar"
+    props:
+      items: "BreadcrumbItem[]"
+    behavior: >
+      Shows navigation breadcrumbs: Organization > Project > Board/Backlog > Issue.
+      Each segment is clickable. Last item is current page.
+
+  # ── Project Views ──────────────────────────────────────────────────────────
+  - name: "ProjectSidebar"
+    props:
+      project: "Project"
+      active_page: "string"
+    behavior: >
+      Project-specific sidebar navigation: Summary, Board, Backlog,
+      Roadmap, Reports, Issues list, Components, Releases, Settings.
+      Shows project avatar, name, and key.
+
+  - name: "ProjectSummaryPage"
+    props:
+      project: "Project"
+    behavior: >
+      Overview dashboard: project description, activity stream,
+      quick stats (open issues, active sprint, team members),
+      recent activity, priority breakdown chart, status distribution.
+
+  # ── Board Components ───────────────────────────────────────────────────────
+  - name: "BoardView"
+    props:
+      board: "Board"
+      columns: "Column[]"
+      issues: "Issue[]"
+      swimlane_by: "'none'|'assignee'|'epic'|'priority'|'issue_type'"
+    behavior: >
+      Kanban/Scrum board with drag-and-drop columns. Each column maps
+      to one or more statuses. Cards can be dragged between columns
+      (triggers workflow transition). Supports swimlanes (horizontal
+      grouping), WIP limits with visual warning, quick filters bar.
+      Column header shows count and WIP limit. Drag-and-drop reordering
+      within columns. Auto-scrolls during drag.
+
+  - name: "BoardColumn"
+    props:
+      column: "Column"
+      issues: "Issue[]"
+      wip_limit: "int | null"
+      onDrop: "(issue_key: string, position: int) => void"
+    behavior: >
+      Single column on the board. Shows column name, issue count,
+      WIP limit indicator (yellow at limit, red over limit).
+      Drop zone for drag-and-drop. Scrollable if many issues.
+      Collapsible.
+
+  - name: "BoardCard"
+    props:
+      issue: "Issue"
+      card_layout: "CardLayout"
+      onDragStart: "() => void"
+    behavior: >
+      Individual issue card on the board. Shows: issue key (clickable),
+      summary, assignee avatar, priority icon, issue type icon, story
+      points badge, labels as colored dots, flag indicator, due date
+      (red if overdue). Configurable card layout (which fields to show).
+      Click opens issue detail. Right-click context menu.
+
+  - name: "QuickFilterBar"
+    props:
+      filters: "QuickFilter[]"
+      active_filters: "string[]"
+      onToggle: "(filter_id: string) => void"
+    behavior: >
+      Row of toggle buttons above the board: "Only My Issues",
+      "Recently Updated", by label, by assignee, by issue type.
+      Multiple can be active. Custom quick filters supported.
+
+  - name: "SwimLane"
+    props:
+      label: "string"
+      issues: "Issue[]"
+      collapsed: "bool"
+      onToggle: "() => void"
+    behavior: >
+      Horizontal grouping row on the board. Shows label (e.g. epic name,
+      assignee name), issue count, collapsible. Contains cards within
+      each column intersection.
+
+  # ── Backlog ────────────────────────────────────────────────────────────────
+  - name: "BacklogView"
+    props:
+      sprints: "Sprint[]"
+      backlog_issues: "Issue[]"
+      epics: "Epic[]"
+    behavior: >
+      Two-panel view: left shows epics panel (filterable), right shows
+      sprint sections and backlog. Each sprint section shows sprint name,
+      goal, date range, story point total, and issue list. Drag issues
+      between sprints and backlog. Inline create at bottom of each section.
+      Context menu for sprint actions (start, complete, edit, delete).
+      Right-click issues for quick actions.
+
+  - name: "SprintSection"
+    props:
+      sprint: "Sprint"
+      issues: "Issue[]"
+      onDrop: "(issue_key: string) => void"
+      onCreateIssue: "(summary: string) => void"
+    behavior: >
+      Collapsible sprint container in backlog view. Header shows sprint
+      name, goal, date range, total/completed points. Issue list is
+      drag-and-drop sortable. Inline quick-create row at bottom.
+      Action buttons: start sprint, edit sprint, delete sprint.
+
+  - name: "BacklogIssueRow"
+    props:
+      issue: "Issue"
+      onDrag: "() => void"
+      onContextMenu: "(e: Event) => void"
+    behavior: >
+      Single row in backlog: issue type icon, key, summary, priority,
+      assignee avatar, story points, label dots, epic link badge.
+      Drag handle on left. Click opens issue detail panel or page.
+      Inline edit on double-click for summary and points.
+
+  - name: "EpicPanel"
+    props:
+      epics: "Epic[]"
+      selected_epic: "string | null"
+      onSelect: "(epic_key: string | null) => void"
+    behavior: >
+      Side panel in backlog view showing epics as colored bars.
+      Click to filter backlog to that epic's issues. Shows progress
+      bar per epic. "Issues without epic" option. Collapsible panel.
+
+  # ── Issue Detail ───────────────────────────────────────────────────────────
+  - name: "IssueDetailPage"
+    props:
+      issue_key: "string"
+    behavior: >
+      Full-page issue view. Two-column layout: left is main content
+      (summary, description, child issues, linked issues, comments,
+      activity, worklogs), right is detail sidebar (status, assignee,
+      reporter, priority, labels, sprint, epic, story points, due date,
+      components, fix versions, custom fields, dates, time tracking).
+      Breadcrumb: Project > Issue. Edit inline for all fields.
+
+  - name: "IssueDetailModal"
+    props:
+      issue_key: "string"
+      onClose: "() => void"
+    behavior: >
+      Slide-over panel (right side) or modal showing issue details.
+      Same content as IssueDetailPage but in an overlay. Used when
+      clicking an issue from a board or list without full navigation.
+      Keyboard shortcut to open in full page.
+
+  - name: "IssueHeader"
+    props:
+      issue: "Issue"
+      onUpdate: "(fields: Partial<Issue>) => void"
+    behavior: >
+      Issue header section: issue type icon, key (PROJ-123), inline
+      editable summary title, parent link (if sub-task), epic badge.
+      Action buttons row: watch, vote, share, flag, more menu
+      (clone, move, delete, export, link issue, add sub-task).
+
+  - name: "IssueDescription"
+    props:
+      description: "string"
+      onSave: "(description: string) => void"
+    behavior: >
+      Rich text editor for issue description. Supports markdown,
+      images, @mentions, code blocks, tables, links, headings,
+      bullet lists, numbered lists, checklists. Click to edit,
+      save/cancel buttons. Auto-save draft. Image paste and drag-drop.
+
+  - name: "IssueStatusBadge"
+    props:
+      status: "Status"
+      transitions: "Transition[]"
+      onTransition: "(transition_id: string) => void"
+    behavior: >
+      Colored badge showing current status. Click opens dropdown
+      showing available transitions. Selecting a transition may
+      open a dialog for required fields (resolution, comment).
+
+  - name: "IssueDetailSidebar"
+    props:
+      issue: "Issue"
+      onUpdate: "(fields: Partial<Issue>) => void"
+    behavior: >
+      Right-side detail panel on issue page. Each field is inline
+      editable. Sections: Status button, Assignee (avatar + picker),
+      Reporter, Priority (dropdown), Labels (multi-select + create),
+      Sprint (dropdown), Epic (search dropdown with color), Story
+      Points (inline number), Original Estimate / Remaining / Time Spent
+      (progress bar), Due Date (date picker), Components, Fix Versions,
+      Affects Versions, Environment, Custom Fields. Created/Updated dates.
+
+  - name: "ChildIssuesList"
+    props:
+      parent_key: "string"
+      children: "Issue[]"
+      onCreateChild: "(summary: string, type: string) => void"
+    behavior: >
+      Table of sub-tasks / child issues. Columns: type icon, key,
+      summary, status, assignee, priority. Progress bar showing %
+      complete. "Create child issue" button with inline form.
+      Drag to reorder. Click to open child detail.
+
+  - name: "LinkedIssuesList"
+    props:
+      links: "LinkedIssue[]"
+      onAddLink: "(type: string, issue_key: string) => void"
+      onRemoveLink: "(link_id: string) => void"
+    behavior: >
+      Grouped by link type (blocks, is blocked by, duplicates, relates to, etc.).
+      Each linked issue shows: key, summary, status badge, priority icon.
+      "Link issue" button opens search dialog to find and link issues.
+
+  - name: "CommentSection"
+    props:
+      issue_key: "string"
+      comments: "Comment[]"
+      onAdd: "(body: string) => void"
+      onEdit: "(comment_id: string, body: string) => void"
+      onDelete: "(comment_id: string) => void"
+    behavior: >
+      Threaded comments with rich text editor. @mentions with autocomplete.
+      Show author avatar, name, timestamp, edited indicator. Edit/delete
+      own comments. Visibility restriction (role-based). Sort oldest/newest.
+      Reactions (optional). Tab between "Comments" and "All Activity".
+
+  - name: "ActivityTab"
+    props:
+      issue_key: "string"
+      activities: "Activity[]"
+      filter: "'all'|'comments'|'history'|'worklogs'"
+    behavior: >
+      Combined timeline of all issue activity: comments, field changes,
+      status transitions, worklog entries, attachment uploads, link changes.
+      Filterable by type. Shows change details (field: old → new).
+      Chronological order with date separators.
+
+  - name: "WorkLogSection"
+    props:
+      issue_key: "string"
+      worklogs: "WorkLog[]"
+      onAdd: "(entry: WorkLogInput) => void"
+    behavior: >
+      Time tracking section: total time spent / original estimate /
+      remaining with progress bar. Log work button opens dialog.
+      List of work log entries (author, date, duration, description).
+      Edit/delete own entries.
+
+  - name: "AttachmentsSection"
+    props:
+      issue_key: "string"
+      attachments: "Attachment[]"
+      onUpload: "(files: File[]) => void"
+      onDelete: "(attachment_id: string) => void"
+    behavior: >
+      Grid/list view of attachments. Thumbnail preview for images.
+      Drag-and-drop upload zone. Click to download or preview in
+      lightbox. Shows filename, size, uploader, date. Delete button.
+
+  # ── Issue Create ───────────────────────────────────────────────────────────
+  - name: "CreateIssueModal"
+    props:
+      default_project: "Project | null"
+      default_type: "string | null"
+      onCreated: "(issue: Issue) => void"
+    behavior: >
+      Full-featured modal for creating issues. Project selector,
+      issue type selector, fields rendered based on screen configuration.
+      Required fields marked with asterisk. Rich text description editor.
+      File upload zone. Create button, Create & another button.
+      Keyboard shortcut to open (C key).
+
+  - name: "InlineCreateRow"
+    props:
+      context: "{ project_id: uuid, sprint_id?: uuid, epic_id?: uuid }"
+      onSubmit: "(summary: string) => void"
+    behavior: >
+      Minimal inline row for quick issue creation. Text input for summary,
+      Enter to create. Inherits context (project, sprint, epic) from parent.
+      Issue type selector optional. Appears at bottom of sprint sections,
+      board columns, and child issue lists.
+
+  # ── Issue List / Table ─────────────────────────────────────────────────────
+  - name: "IssueListView"
+    props:
+      issues: "Issue[]"
+      columns: "ColumnDef[]"
+      onSort: "(field: string, order: string) => void"
+      onRowClick: "(issue_key: string) => void"
+    behavior: >
+      Tabular list of issues with sortable columns. Default columns:
+      type icon, key, summary, assignee, reporter, priority, status,
+      created, updated, due date, story points. Column visibility and
+      order configurable. Row click opens issue. Multi-select with
+      checkboxes for bulk actions. Pagination.
+
+  - name: "BulkActionBar"
+    props:
+      selected_keys: "string[]"
+      onAction: "(action: string, params: any) => void"
+    behavior: >
+      Appears when issues are multi-selected. Actions: transition,
+      assign, change priority, add labels, move to sprint, move to
+      epic, delete. Shows count of selected items. Select all option.
+
+  # ── Sprint Planning ────────────────────────────────────────────────────────
+  - name: "SprintPlanningView"
+    props:
+      board: "Board"
+      active_sprint: "Sprint | null"
+      future_sprints: "Sprint[]"
+      backlog_issues: "Issue[]"
+    behavior: >
+      Dedicated sprint planning mode: source panel (backlog) on left,
+      target sprint(s) on right. Drag issues from backlog into sprint.
+      Shows capacity indicator per sprint (total points vs team velocity).
+      Filter backlog by epic, label, assignee. Create sprint button.
+
+  - name: "CapacityIndicator"
+    props:
+      sprint: "Sprint"
+      current_points: "int"
+      team_velocity: "float"
+    behavior: >
+      Visual indicator of sprint capacity: progress bar showing
+      committed points vs average velocity. Green (under), yellow
+      (near capacity), red (over capacity). Shows numbers.
+
+  # ── Roadmap ────────────────────────────────────────────────────────────────
+  - name: "RoadmapView"
+    props:
+      project: "Project"
+      epics: "Epic[]"
+      versions: "Version[]"
+      view_range: "{ from: date, to: date }"
+    behavior: >
+      Gantt-style timeline view. Epics displayed as horizontal bars
+      with start/end dates. Color-coded by status. Drag to resize
+      (change dates). Click to expand children (stories). Version
+      markers as vertical lines. Zoom levels: weeks, months, quarters.
+      Create epic inline. Dependency arrows between linked epics.
+
+  - name: "RoadmapBar"
+    props:
+      epic: "Epic"
+      onDrag: "(start_date: date, end_date: date) => void"
+    behavior: >
+      Horizontal bar representing an epic on the roadmap timeline.
+      Color-coded. Shows epic name, progress %. Drag handles on left
+      and right edges to adjust dates. Click opens epic detail.
+      Collapsed/expanded to show child issues.
+
+  - name: "TimelineHeader"
+    props:
+      range: "{ from: date, to: date }"
+      zoom: "'week'|'month'|'quarter'"
+      onZoomChange: "(zoom: string) => void"
+    behavior: >
+      Timeline header above roadmap bars: date labels at selected
+      granularity, today indicator line, zoom controls, navigation
+      arrows to scroll timeline. Sticky header during scroll.
+
+  # ── Reports ────────────────────────────────────────────────────────────────
+  - name: "ReportsPage"
+    props:
+      project: "Project"
+      board: "Board"
+    behavior: >
+      Report hub page. Cards/list linking to available reports:
+      Burndown Chart, Velocity Chart, Sprint Report, Epic Report,
+      Version Report, Cumulative Flow Diagram, Control Chart,
+      Created vs Resolved, Average Age, Resolution Time, Workload.
+      Each card shows a thumbnail preview and description.
+
+  - name: "BurndownChart"
+    props:
+      data: "BurndownData"
+      metric: "'story_points'|'issue_count'"
+    behavior: >
+      Line chart showing ideal vs actual burndown. X-axis: sprint
+      days, Y-axis: remaining work. Shaded area between ideal and
+      actual. Scope change indicators. Tooltip on hover showing
+      daily details. Toggle between points and issue count.
+
+  - name: "VelocityChart"
+    props:
+      data: "VelocityData"
+    behavior: >
+      Bar chart per sprint: committed (gray) vs completed (blue/green).
+      Horizontal line showing average velocity. Shows last N sprints.
+      Hover for details. Useful for sprint planning capacity.
+
+  - name: "CumulativeFlowDiagram"
+    props:
+      data: "CumulativeFlowData"
+    behavior: >
+      Stacked area chart. X-axis: dates, Y-axis: issue count.
+      Each status is a colored band. Shows WIP, throughput, and
+      bottleneck identification at a glance. Date range selector.
+
+  - name: "SprintReportView"
+    props:
+      data: "SprintReportData"
+    behavior: >
+      Split view: completed issues (green section) and incomplete
+      issues (red section). For each: issue key, summary, type, priority,
+      assignee, story points. Summary stats at top. Scope change log.
+
+  - name: "ControlChart"
+    props:
+      data: "ControlChartData"
+    behavior: >
+      Scatter plot of issues by cycle time. X-axis: completion date,
+      Y-axis: days to complete. Rolling average line. Standard deviation
+      bands. Outlier highlighting. Click point to open issue.
+
+  # ── Dashboard ──────────────────────────────────────────────────────────────
+  - name: "DashboardPage"
+    props:
+      dashboard: "Dashboard"
+      gadgets: "Gadget[]"
+    behavior: >
+      Configurable dashboard with grid layout. Gadgets are draggable
+      and resizable. Add gadget button opens gadget catalog. Edit
+      dashboard mode for rearranging. Multiple dashboard tabs.
+      Share dashboard with team/project.
+
+  - name: "DashboardGadget"
+    props:
+      gadget: "Gadget"
+      data: "any"
+      onConfigure: "() => void"
+      onRemove: "() => void"
+    behavior: >
+      Individual widget on dashboard. Header with title, config gear
+      icon, remove button, maximize button. Content area renders
+      based on gadget type (chart, list, stats). Loading skeleton
+      while fetching. Refresh button. Drag handle for repositioning.
+
+  - name: "GadgetCatalog"
+    props:
+      onSelect: "(gadget_type: string) => void"
+    behavior: >
+      Modal/drawer listing all available gadget types: Assigned to Me,
+      Filter Results, Pie Chart, Bar Chart, Burndown, Velocity, Sprint
+      Health, Created vs Resolved, Activity Stream, Worklog Summary,
+      Two-Dimensional Filter, Quick Links, Road Map, Calendar, etc.
+      Search and category filter. Preview/description for each.
+
+  # ── Filters & JQL ─────────────────────────────────────────────────────────
+  - name: "FilterBar"
+    props:
+      current_filter: "Filter | null"
+      quick_filters: "QuickFilter[]"
+      onApply: "(filter: FilterParams) => void"
+    behavior: >
+      Filter controls above issue lists. Dropdowns for: project, type,
+      status, assignee, priority, label, sprint, epic. Text search.
+      Switch to JQL mode. Save as filter button. Clear all button.
+      Applied filters shown as removable chips.
+
+  - name: "JQLEditor"
+    props:
+      value: "string"
+      onExecute: "(jql: string) => void"
+      onValidate: "(jql: string) => ValidationResult"
+    behavior: >
+      Text input with JQL syntax highlighting. Autocomplete for
+      field names, operators, values, functions. Syntax validation
+      with error highlighting. Execute button. Help link to JQL
+      reference. History of recent queries.
+
+  - name: "SavedFiltersList"
+    props:
+      filters: "Filter[]"
+      onSelect: "(filter_id: string) => void"
+      onStar: "(filter_id: string) => void"
+    behavior: >
+      List of saved filters: name, owner, share scope, star/unstar.
+      Tabs: My Filters, Favorite, Popular, Shared. Search box.
+      Click to execute, gear icon to edit/delete/share.
+
+  # ── User & Team ───────────────────────────────────────────────────────────
+  - name: "UserProfilePage"
+    props:
+      user: "User"
+    behavior: >
+      User profile: avatar, display name, email, role, timezone.
+      Activity stream. Assigned issues. Reported issues. Worklogs.
+      Edit profile button (for own profile).
+
+  - name: "TeamManagementPage"
+    props:
+      org: "Organization"
+      members: "Member[]"
+    behavior: >
+      Table of org/project members: avatar, name, email, role,
+      last active. Invite button. Role change dropdown. Remove
+      member button. Search/filter. Pending invitations section.
+
+  - name: "UserPicker"
+    props:
+      value: "User | null"
+      onChange: "(user: User | null) => void"
+      multiple: "bool"
+    behavior: >
+      Dropdown/combobox to select users. Search by name or email.
+      Shows avatar, name, role. "Unassigned" option. "Assign to me"
+      shortcut. Used for assignee, reporter, watchers, mentions.
+
+  # ── Workflow Designer ──────────────────────────────────────────────────────
+  - name: "WorkflowDesigner"
+    props:
+      workflow: "Workflow"
+      onSave: "(workflow: Workflow) => void"
+    behavior: >
+      Visual workflow editor. Statuses as nodes, transitions as arrows.
+      Drag to add new statuses from palette. Draw arrows between statuses
+      to create transitions. Click status to edit (name, category, color).
+      Click transition to add conditions, validators, post-functions.
+      Validate workflow completeness. Publish/draft modes.
+
+  - name: "WorkflowStatusNode"
+    props:
+      status: "Status"
+      onEdit: "() => void"
+      onDelete: "() => void"
+    behavior: >
+      Draggable node representing a status. Color-coded by category
+      (blue=to_do, yellow=in_progress, green=done). Shows name.
+      Connection points for drawing transitions. Click to edit.
+
+  - name: "TransitionArrow"
+    props:
+      transition: "Transition"
+      onEdit: "() => void"
+    behavior: >
+      Arrow connecting two status nodes. Label shows transition name.
+      Click to edit conditions and validators. Animated dashes for
+      conditional transitions.
+
+  # ── Settings ───────────────────────────────────────────────────────────────
+  - name: "ProjectSettingsPage"
+    props:
+      project: "Project"
+    behavior: >
+      Tabbed settings page. Tabs: Details, Access, Notifications,
+      Issue Types, Workflow, Screens, Fields, Components, Versions,
+      Automation, Apps. Each tab is a form/config panel.
+
+  - name: "AdminSettingsPage"
+    props: {}
+    behavior: >
+      System admin settings. Sections: General, Users, Groups,
+      Global Permissions, Security, Issue Types, Workflows,
+      Screens, Fields, Priorities, Notification Schemes,
+      Audit Log, System Health, Backup/Restore, Apps.
+
+  # ── Automation Rule Builder ────────────────────────────────────────────────
+  - name: "AutomationRuleBuilder"
+    props:
+      rule: "AutomationRule | null"
+      onSave: "(rule: AutomationRule) => void"
+    behavior: >
+      Visual rule builder: WHEN (trigger selector) → IF (condition
+      chain with AND/OR logic) → THEN (action list). Each block
+      is a card that expands to show configuration. Trigger types:
+      issue created, updated, transitioned, comment added, scheduled,
+      etc. Conditions: JQL match, field value, user condition.
+      Actions: transition, edit, comment, email, webhook, etc.
+      Test run button. Execution log link.
+
+  # ── Notifications ──────────────────────────────────────────────────────────
+  - name: "NotificationPanel"
+    props:
+      notifications: "Notification[]"
+      onMarkRead: "(id: string) => void"
+      onMarkAllRead: "() => void"
+    behavior: >
+      Slide-out panel from notification bell. Grouped by date.
+      Each notification: icon, title, message, timestamp, unread dot.
+      Click navigates to the relevant issue/project. Mark as read
+      on click. "Mark all as read" button. Link to notification settings.
+
+  - name: "NotificationSettingsPage"
+    props:
+      preferences: "NotificationPreference[]"
+      onSave: "(prefs: NotificationPreference[]) => void"
+    behavior: >
+      Table of notification events vs channels (in-app, email, Slack).
+      Toggle each combination. Events: assigned, mentioned, watched
+      issue updated, comment added, sprint started/completed,
+      status changed, etc. Batch enable/disable by channel.
+
+  # ── Git / Dev Integration Panel ────────────────────────────────────────────
+  - name: "DevInfoPanel"
+    props:
+      issue_key: "string"
+      dev_info: "DevInfo"
+    behavior: >
+      Collapsible panel on issue detail showing linked development
+      activity: branches, commits, pull requests, builds, deployments.
+      Each item shows status icon, title/name, repo, author, timestamp.
+      Click to open in external tool (GitHub, GitLab, Bitbucket).
+      "Create branch" button generating branch name from issue key.
+
+  # ── Time Tracking & Timesheets ─────────────────────────────────────────────
+  - name: "TimesheetView"
+    props:
+      user: "User"
+      date_range: "{ from: date, to: date }"
+      data: "TimesheetData"
+    behavior: >
+      Weekly/monthly timesheet grid. Rows: issues worked on.
+      Columns: days of the week. Cells: hours logged (editable).
+      Row totals, column totals, grand total. Add issue row.
+      Submit for approval button. Status indicator (draft, submitted,
+      approved, rejected). Navigate weeks/months.
+
+  - name: "TimeTrackingWidget"
+    props:
+      issue: "Issue"
+      onLogWork: "(entry: WorkLogInput) => void"
+    behavior: >
+      Compact widget on issue detail: original estimate, time spent,
+      remaining estimate displayed as segmented progress bar. "Log Work"
+      button opens quick form: time spent, date, description.
+      Shows recent log entries. Start/stop timer option.
+
+  # ── Marketplace / Apps ─────────────────────────────────────────────────────
+  - name: "MarketplacePage"
+    props: {}
+    behavior: >
+      Browse available apps/integrations. Categories: CI/CD, Design,
+      Communication, Time Tracking, Testing, Documentation, Security.
+      Search bar. App cards with icon, name, vendor, rating, installs.
+      Click for detail page with screenshots, description, reviews.
+      Install/uninstall button.
+
+  # ── Common / Shared ────────────────────────────────────────────────────────
+  - name: "RichTextEditor"
+    props:
+      value: "string"
+      onChange: "(value: string) => void"
+      placeholder: "string"
+    behavior: >
+      WYSIWYG editor with toolbar: bold, italic, underline, strikethrough,
+      headings (H1-H6), bullet list, numbered list, checklist, blockquote,
+      code block, horizontal rule, table, image (upload/paste/URL),
+      link, @mention (user autocomplete), emoji picker, color.
+      Markdown shortcuts supported. Drag-drop image upload.
+      Full-screen edit mode.
+
+  - name: "AvatarGroup"
+    props:
+      users: "User[]"
+      max_display: "int"
+    behavior: >
+      Overlapping row of circular user avatars. Shows first N,
+      then "+X more" badge. Tooltip on hover shows name. Click
+      individual to view profile. Used for assignees, watchers, team.
+
+  - name: "PriorityIcon"
+    props:
+      priority: "string"
+    behavior: >
+      Arrow icon colored by priority: Highest (red up-up), High (red up),
+      Medium (yellow), Low (blue down), Lowest (blue down-down).
+
+  - name: "IssueTypeIcon"
+    props:
+      type: "string"
+    behavior: >
+      Icon for issue type: Epic (purple lightning bolt), Story (green
+      bookmark), Task (blue checkbox), Bug (red circle), Sub-task
+      (blue small box), Improvement (green up arrow), New Feature
+      (green plus).
+
+  - name: "DatePicker"
+    props:
+      value: "date | null"
+      onChange: "(date: date | null) => void"
+      min_date: "date | null"
+      max_date: "date | null"
+    behavior: >
+      Calendar dropdown date picker. Highlights today. Shows
+      overdue in red. Clear button. Keyboard navigation.
+
+  - name: "LabelPicker"
+    props:
+      value: "string[]"
+      options: "string[]"
+      onChange: "(labels: string[]) => void"
+      onCreate: "(label: string) => void"
+    behavior: >
+      Multi-select dropdown with search. Shows colored label chips.
+      "Create new label" option when typing non-existing label.
+      Remove individual labels via X button.
+
+  - name: "ConfirmDialog"
+    props:
+      title: "string"
+      message: "string"
+      confirm_label: "string"
+      danger: "bool"
+      onConfirm: "() => void"
+      onCancel: "() => void"
+    behavior: >
+      Modal dialog for destructive actions. Shows warning icon if danger.
+      Confirm and Cancel buttons. Danger button is red. May require
+      typing entity name to confirm (for deletes).
+
+  - name: "EmptyState"
+    props:
+      icon: "ReactNode"
+      title: "string"
+      description: "string"
+      action_label: "string"
+      onAction: "() => void"
+    behavior: >
+      Displayed when lists/boards are empty. Centered illustration,
+      title, description, and CTA button. Used for: no issues,
+      no sprints, no projects, etc.
+
+  - name: "LoadingSkeleton"
+    props:
+      variant: "'list'|'board'|'detail'|'chart'"
+    behavior: >
+      Animated placeholder while content loads. Matches the layout
+      of the target component. Gray pulsing rectangles and circles.
+
+  - name: "ErrorBoundary"
+    props:
+      children: "ReactNode"
+    behavior: >
+      Catches rendering errors, displays friendly error message
+      with retry button. Logs error details. Shows different
+      messages for network errors vs rendering errors.
+
+  - name: "KeyboardShortcutsDialog"
+    props: {}
+    behavior: >
+      Modal listing all keyboard shortcuts. Sections: Navigation
+      (G then B = board, G then K = backlog), Issue Actions (C = create,
+      A = assign, M = comment, L = label, P = priority, T = transition),
+      Board (drag with keyboard), Search (/ or Cmd+K). Triggered by ? key.
+
+  - name: "ContextMenu"
+    props:
+      items: "MenuItem[]"
+      position: "{ x: int, y: int }"
+      onSelect: "(item_id: string) => void"
+    behavior: >
+      Right-click context menu. Items with icons, labels, keyboard
+      shortcuts. Submenus for nested options. Dividers between
+      groups. Disabled items grayed out. Auto-positions to stay
+      in viewport.
+
+
+# =============================================================================
+# DATA MODELS
+# =============================================================================
+models:
+
+  - name: "Organization"
+    fields:
+      id: "uuid"
+      name: "string"
+      slug: "string, unique"
+      description: "string, optional"
+      logo_url: "string, optional"
+      owner_id: "uuid"
+      default_timezone: "string, default 'UTC'"
+      settings: "jsonb (OrgSettings)"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "has_many User (through OrgMembership)"
+      - "has_many Project"
+
+  - name: "OrgMembership"
+    fields:
+      id: "uuid"
+      org_id: "uuid"
+      user_id: "uuid"
+      role: "enum: owner, admin, member, viewer"
+      joined_at: "datetime"
+    relations:
+      - "belongs_to Organization"
+      - "belongs_to User"
+
+  - name: "User"
+    fields:
+      id: "uuid"
+      email: "string, unique"
+      password_hash: "string"
+      display_name: "string"
+      avatar_url: "string, optional"
+      timezone: "string, default 'UTC'"
+      locale: "string, default 'en'"
+      notification_preferences: "jsonb"
+      is_active: "bool, default true"
+      last_login_at: "datetime, optional"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "has_many OrgMembership"
+      - "has_many Issue (as assignee)"
+      - "has_many Issue (as reporter)"
+      - "has_many Comment"
+      - "has_many WorkLog"
+      - "has_many Notification"
+
+  - name: "Project"
+    fields:
+      id: "uuid"
+      org_id: "uuid"
+      name: "string"
+      key: "string, unique per org (2-10 uppercase chars)"
+      description: "string, optional"
+      project_type: "enum: scrum, kanban, basic"
+      lead_id: "uuid"
+      default_assignee_id: "uuid, optional"
+      category: "string, optional"
+      avatar_url: "string, optional"
+      issue_count: "int, default 0 (auto-increment sequence)"
+      is_archived: "bool, default false"
+      workflow_scheme_id: "uuid, optional"
+      issue_type_scheme_id: "uuid, optional"
+      permission_scheme_id: "uuid, optional"
+      notification_scheme_id: "uuid, optional"
+      screen_scheme_id: "uuid, optional"
+      settings: "jsonb (ProjectSettings)"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to Organization"
+      - "belongs_to User (as lead)"
+      - "has_many Issue"
+      - "has_many Board"
+      - "has_many Sprint (through Board)"
+      - "has_many Version"
+      - "has_many Component"
+      - "has_many Epic (Issue where type=epic)"
+
+  - name: "Issue"
+    fields:
+      id: "uuid"
+      project_id: "uuid"
+      key: "string, unique (e.g. 'PROJ-42', auto-generated)"
+      issue_type: "enum: epic, story, task, bug, sub_task, improvement, new_feature"
+      summary: "string"
+      description: "text, optional (rich text / markdown)"
+      status_id: "uuid"
+      priority: "enum: highest, high, medium, low, lowest"
+      resolution: "enum: unresolved, done, wont_do, duplicate, cannot_reproduce, incomplete, null"
+      assignee_id: "uuid, optional"
+      reporter_id: "uuid"
+      epic_id: "uuid, optional (parent epic)"
+      parent_id: "uuid, optional (for sub-tasks)"
+      sprint_id: "uuid, optional"
+      story_points: "float, optional"
+      original_estimate_seconds: "int, optional"
+      remaining_estimate_seconds: "int, optional"
+      time_spent_seconds: "int, default 0"
+      due_date: "date, optional"
+      environment: "string, optional"
+      labels: "string[] (array)"
+      component_ids: "uuid[]"
+      fix_version_ids: "uuid[]"
+      affects_version_ids: "uuid[]"
+      custom_fields: "jsonb"
+      votes: "int, default 0"
+      watcher_count: "int, default 0"
+      is_flagged: "bool, default false"
+      rank: "string (lexicographic rank for ordering)"
+      created_at: "datetime"
+      updated_at: "datetime"
+      resolved_at: "datetime, optional"
+    relations:
+      - "belongs_to Project"
+      - "belongs_to User (as assignee)"
+      - "belongs_to User (as reporter)"
+      - "belongs_to Issue (as epic, optional)"
+      - "belongs_to Issue (as parent, optional)"
+      - "belongs_to Sprint (optional)"
+      - "belongs_to Status"
+      - "has_many Issue (as children / sub-tasks)"
+      - "has_many Comment"
+      - "has_many Attachment"
+      - "has_many WorkLog"
+      - "has_many IssueLink"
+      - "has_many ChangeLogEntry"
+      - "has_many IssueWatcher"
+      - "has_many IssueVote"
+
+  - name: "Status"
+    fields:
+      id: "uuid"
+      name: "string"
+      description: "string, optional"
+      category: "enum: to_do, in_progress, done"
+      color: "string (hex)"
+      icon: "string, optional"
+      created_at: "datetime"
+
+  - name: "Sprint"
+    fields:
+      id: "uuid"
+      board_id: "uuid"
+      name: "string"
+      goal: "string, optional"
+      state: "enum: future, active, closed"
+      start_date: "datetime, optional"
+      end_date: "datetime, optional"
+      completed_at: "datetime, optional"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to Board"
+      - "has_many Issue"
+
+  - name: "Board"
+    fields:
+      id: "uuid"
+      name: "string"
+      type: "enum: scrum, kanban"
+      project_ids: "uuid[]"
+      filter_id: "uuid, optional"
+      column_config: "jsonb (ColumnConfig)"
+      swimlane_config: "jsonb, optional"
+      card_layout: "jsonb, optional"
+      quick_filters: "jsonb, optional"
+      estimation_type: "enum: story_points, hours, none"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "has_many Sprint"
+      - "belongs_to Filter (optional)"
+
+  - name: "Comment"
+    fields:
+      id: "uuid"
+      issue_id: "uuid"
+      author_id: "uuid"
+      body: "text (rich text / markdown)"
+      visibility: "jsonb, optional (role/group restriction)"
+      is_edited: "bool, default false"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to Issue"
+      - "belongs_to User (as author)"
+
+  - name: "Attachment"
+    fields:
+      id: "uuid"
+      issue_id: "uuid"
+      uploader_id: "uuid"
+      filename: "string"
+      mime_type: "string"
+      size_bytes: "int"
+      storage_path: "string"
+      thumbnail_url: "string, optional"
+      created_at: "datetime"
+    relations:
+      - "belongs_to Issue"
+      - "belongs_to User (as uploader)"
+
+  - name: "WorkLog"
+    fields:
+      id: "uuid"
+      issue_id: "uuid"
+      author_id: "uuid"
+      time_spent_seconds: "int"
+      started_at: "datetime"
+      description: "string, optional"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to Issue"
+      - "belongs_to User (as author)"
+
+  - name: "IssueLink"
+    fields:
+      id: "uuid"
+      link_type: "enum: blocks, is_blocked_by, clones, is_cloned_by, duplicates, is_duplicated_by, relates_to, causes, is_caused_by, is_child_of, is_parent_of"
+      inward_issue_id: "uuid"
+      outward_issue_id: "uuid"
+      created_by_id: "uuid"
+      created_at: "datetime"
+    relations:
+      - "belongs_to Issue (inward)"
+      - "belongs_to Issue (outward)"
+      - "belongs_to User (as creator)"
+
+  - name: "ChangeLogEntry"
+    fields:
+      id: "uuid"
+      issue_id: "uuid"
+      author_id: "uuid"
+      items: "jsonb [{ field, field_type, from_value, from_string, to_value, to_string }]"
+      created_at: "datetime"
+    relations:
+      - "belongs_to Issue"
+      - "belongs_to User (as author)"
+
+  - name: "Version"
+    fields:
+      id: "uuid"
+      project_id: "uuid"
+      name: "string"
+      description: "string, optional"
+      status: "enum: unreleased, released, archived"
+      start_date: "date, optional"
+      release_date: "date, optional"
+      released_at: "datetime, optional"
+      sort_order: "int"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to Project"
+      - "has_many Issue (as fix_version)"
+      - "has_many Issue (as affects_version)"
+
+  - name: "Component"
+    fields:
+      id: "uuid"
+      project_id: "uuid"
+      name: "string"
+      description: "string, optional"
+      lead_id: "uuid, optional"
+      default_assignee: "enum: project_default, component_lead, unassigned"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to Project"
+      - "belongs_to User (as lead, optional)"
+
+  - name: "Filter"
+    fields:
+      id: "uuid"
+      name: "string"
+      description: "string, optional"
+      owner_id: "uuid"
+      jql: "string"
+      is_favorite: "bool, default false"
+      share_permissions: "jsonb"
+      view_count: "int, default 0"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to User (as owner)"
+
+  - name: "Dashboard"
+    fields:
+      id: "uuid"
+      name: "string"
+      description: "string, optional"
+      owner_id: "uuid"
+      layout: "enum: 1_column, 2_column, 3_column, 2_1_split, 1_2_split"
+      share_permissions: "jsonb"
+      is_system: "bool, default false"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to User (as owner)"
+      - "has_many Gadget"
+
+  - name: "Gadget"
+    fields:
+      id: "uuid"
+      dashboard_id: "uuid"
+      type: "string"
+      title: "string, optional"
+      position: "jsonb { column: int, row: int, width?: int, height?: int }"
+      config: "jsonb (gadget-specific settings)"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to Dashboard"
+
+  - name: "Workflow"
+    fields:
+      id: "uuid"
+      name: "string"
+      description: "string, optional"
+      is_system: "bool, default false"
+      statuses: "jsonb [{ id, name, category, color }]"
+      transitions: "jsonb [{ id, name, from, to, conditions, validators, post_functions }]"
+      created_at: "datetime"
+      updated_at: "datetime"
+
+  - name: "WorkflowScheme"
+    fields:
+      id: "uuid"
+      name: "string"
+      description: "string, optional"
+      default_workflow_id: "uuid"
+      issue_type_mappings: "jsonb [{ issue_type, workflow_id }]"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to Workflow (as default)"
+      - "has_many Project"
+
+  - name: "CustomField"
+    fields:
+      id: "uuid"
+      name: "string"
+      type: "enum: text, number, date, datetime, select, multiselect, user, url, checkbox, textarea, radio, cascading_select"
+      description: "string, optional"
+      options: "string[], optional (for select types)"
+      default_value: "jsonb, optional"
+      is_required: "bool, default false"
+      is_searchable: "bool, default true"
+      project_ids: "uuid[], optional (null = global)"
+      created_at: "datetime"
+      updated_at: "datetime"
+
+  - name: "Screen"
+    fields:
+      id: "uuid"
+      name: "string"
+      description: "string, optional"
+      tabs: "jsonb [{ name, fields: [{ field_id, required, order }] }]"
+      created_at: "datetime"
+      updated_at: "datetime"
+
+  - name: "AutomationRule"
+    fields:
+      id: "uuid"
+      name: "string"
+      project_id: "uuid, optional"
+      enabled: "bool, default true"
+      trigger: "jsonb { type, config }"
+      conditions: "jsonb [{ type, config }]"
+      actions: "jsonb [{ type, config }]"
+      execution_count: "int, default 0"
+      last_executed_at: "datetime, optional"
+      created_by_id: "uuid"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to Project (optional)"
+      - "belongs_to User (as creator)"
+
+  - name: "Webhook"
+    fields:
+      id: "uuid"
+      name: "string"
+      url: "string"
+      secret: "string, optional"
+      events: "string[]"
+      project_ids: "uuid[], optional"
+      is_active: "bool, default true"
+      last_delivery_at: "datetime, optional"
+      failure_count: "int, default 0"
+      created_by_id: "uuid"
+      created_at: "datetime"
+      updated_at: "datetime"
+    relations:
+      - "belongs_to User (as creator)"
+
+  - name: "Notification"
+    fields:
+      id: "uuid"
+      user_id: "uuid"
+      type: "string"
+      title: "string"
+      message: "string"
+      issue_key: "string, optional"
+      project_id: "uuid, optional"
+      actor_id: "uuid"
+      is_read: "bool, default false"
+      created_at: "datetime"
+    relations:
+      - "belongs_to User"
+      - "belongs_to User (as actor)"
+
+  - name: "Invitation"
+    fields:
+      id: "uuid"
+      org_id: "uuid"
+      email: "string"
+      role: "enum: admin, member, viewer"
+      token: "string, unique"
+      invited_by_id: "uuid"
+      status: "enum: pending, accepted, expired, revoked"
+      expires_at: "datetime"
+      created_at: "datetime"
+    relations:
+      - "belongs_to Organization"
+      - "belongs_to User (as inviter)"
+
+  - name: "AuditLogEntry"
+    fields:
+      id: "uuid"
+      timestamp: "datetime"
+      actor_id: "uuid"
+      event: "string"
+      entity_type: "string"
+      entity_id: "string"
+      entity_name: "string, optional"
+      changes: "jsonb"
+      ip_address: "string, optional"
+      user_agent: "string, optional"
+    relations:
+      - "belongs_to User (as actor)"
+
+  - name: "IssueWatcher"
+    fields:
+      issue_id: "uuid"
+      user_id: "uuid"
+      created_at: "datetime"
+    relations:
+      - "belongs_to Issue"
+      - "belongs_to User"
+
+  - name: "IssueVote"
+    fields:
+      issue_id: "uuid"
+      user_id: "uuid"
+      created_at: "datetime"
+    relations:
+      - "belongs_to Issue"
+      - "belongs_to User"
+
+  - name: "ProjectRole"
+    fields:
+      id: "uuid"
+      project_id: "uuid"
+      name: "string"
+      description: "string, optional"
+      permissions: "string[]"
+      is_system: "bool, default false"
+      created_at: "datetime"
+    relations:
+      - "belongs_to Project"
+      - "has_many User (through ProjectRoleMember)"
+
+  - name: "PermissionScheme"
+    fields:
+      id: "uuid"
+      name: "string"
+      description: "string, optional"
+      grants: "jsonb [{ permission, holder: { type, id } }]"
+      created_at: "datetime"
+      updated_at: "datetime"
+
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+config:
+  env_vars:
+    DATABASE_URL: "PostgreSQL connection string (e.g. postgresql://user:pass@host:5432/jira)"
+    REDIS_URL: "Redis connection for caching, sessions, and real-time pub/sub"
+    JWT_SECRET: "Secret key for JWT token signing"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "Access token expiry, default 30"
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: "Refresh token expiry, default 30"
+    PORT: "Server port, default 8000"
+    HOST: "Server host, default 0.0.0.0"
+    CORS_ORIGINS: "Comma-separated allowed origins"
+    BASE_URL: "Public base URL of the application"
+    FRONTEND_URL: "Frontend application URL for redirects"
+
+    # File Storage
+    STORAGE_BACKEND: "'local'|'s3'|'gcs'"
+    S3_BUCKET: "S3 bucket for attachments"
+    S3_REGION: "AWS region"
+    S3_ACCESS_KEY: "AWS access key"
+    S3_SECRET_KEY: "AWS secret key"
+    MAX_ATTACHMENT_SIZE_MB: "Max file upload size, default 25"
+
+    # Email
+    SMTP_HOST: "SMTP server host"
+    SMTP_PORT: "SMTP port, default 587"
+    SMTP_USER: "SMTP username"
+    SMTP_PASSWORD: "SMTP password"
+    EMAIL_FROM: "Default sender email address"
+
+    # OAuth / SSO
+    GOOGLE_CLIENT_ID: "Google OAuth client ID"
+    GOOGLE_CLIENT_SECRET: "Google OAuth client secret"
+    GITHUB_CLIENT_ID: "GitHub OAuth client ID"
+    GITHUB_CLIENT_SECRET: "GitHub OAuth client secret"
+    MICROSOFT_CLIENT_ID: "Microsoft OAuth client ID"
+    MICROSOFT_CLIENT_SECRET: "Microsoft OAuth client secret"
+    SAML_ENTITY_ID: "SAML entity ID for SSO"
+    SAML_SSO_URL: "SAML SSO endpoint"
+    SAML_CERTIFICATE: "SAML X.509 certificate"
+
+    # Search
+    ELASTICSEARCH_URL: "Elasticsearch for full-text search and JQL"
+
+    # Real-time
+    WEBSOCKET_ENABLED: "Enable WebSocket connections, default true"
+
+    # Integrations
+    GITHUB_APP_ID: "GitHub App ID for dev integration"
+    GITHUB_APP_PRIVATE_KEY: "GitHub App private key"
+    GITLAB_TOKEN: "GitLab integration token"
+    BITBUCKET_CLIENT_ID: "Bitbucket app client ID"
+    BITBUCKET_CLIENT_SECRET: "Bitbucket app secret"
+    SLACK_BOT_TOKEN: "Slack bot token for notifications"
+    SLACK_SIGNING_SECRET: "Slack request verification"
+
+    # Monitoring
+    SENTRY_DSN: "Sentry error tracking DSN"
+    LOG_LEVEL: "Logging level: debug|info|warning|error"
+
+    # Security
+    RATE_LIMIT_PER_MINUTE: "API rate limit per user, default 300"
+    REQUIRE_2FA: "Require two-factor authentication, default false"
+    SESSION_TIMEOUT_MINUTES: "Inactive session timeout, default 480"
+    PASSWORD_MIN_LENGTH: "Minimum password length, default 8"
+
+  feature_flags:
+    ENABLE_SIGNUP: "Allow public user registration"
+    ENABLE_OAUTH_GOOGLE: "Enable Google SSO"
+    ENABLE_OAUTH_GITHUB: "Enable GitHub SSO"
+    ENABLE_OAUTH_MICROSOFT: "Enable Microsoft SSO"
+    ENABLE_SAML: "Enable SAML-based SSO"
+    ENABLE_TIME_TRACKING: "Enable work log / time tracking features"
+    ENABLE_TIMESHEETS: "Enable timesheet views and approval workflows"
+    ENABLE_AUTOMATION: "Enable automation rules engine"
+    ENABLE_MARKETPLACE: "Enable app marketplace"
+    ENABLE_GIT_INTEGRATION: "Enable GitHub/GitLab/Bitbucket integration panel"
+    ENABLE_ROADMAP: "Enable roadmap / timeline view"
+    ENABLE_ADVANCED_WORKFLOWS: "Enable custom workflow designer"
+    ENABLE_CUSTOM_FIELDS: "Enable custom field creation"
+    ENABLE_WEBHOOKS: "Enable webhook registration"
+    ENABLE_AUDIT_LOG: "Enable audit logging"
+    ENABLE_IMPORT_EXPORT: "Enable data import/export"
+    ENABLE_TRASH: "Enable recycle bin for deleted items"
+    ENABLE_REALTIME: "Enable WebSocket real-time updates"
+    ENABLE_DARK_MODE: "Enable dark mode in frontend"
+    ENABLE_KEYBOARD_SHORTCUTS: "Enable keyboard shortcut system"
+    ENABLE_BULK_OPERATIONS: "Enable bulk issue operations"
+    ENABLE_VOTING: "Enable issue voting"
+    ENABLE_WATCHING: "Enable issue watching"
+    ENABLE_NOTIFICATIONS_SLACK: "Enable Slack notification channel"
+    ENABLE_NOTIFICATIONS_EMAIL: "Enable email notification channel"
+    MAX_PROJECTS_PER_ORG: "Maximum projects per organization, 0 = unlimited"
+    MAX_USERS_PER_ORG: "Maximum members per organization, 0 = unlimited"
+    MAX_ISSUES_PER_PROJECT: "Maximum issues per project, 0 = unlimited"
