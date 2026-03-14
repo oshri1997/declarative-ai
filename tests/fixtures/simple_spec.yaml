@@ -1,0 +1,26 @@
+name: todo-api
+version: "1.0"
+language: python
+framework: fastapi
+endpoints:
+  - method: GET
+    path: /tasks
+    response_schema:
+      items: array of Task
+    description: List all tasks
+components:
+  - name: TaskList
+    props:
+      tasks: array
+    behavior: Renders a list of tasks
+models:
+  - name: Task
+    fields:
+      id: string
+      title: string
+      done: boolean
+config:
+  env_vars:
+    DATABASE_URL: PostgreSQL connection string
+  feature_flags:
+    enable_auth: false
