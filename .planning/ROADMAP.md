@@ -46,7 +46,11 @@ Plans:
   2. Tasks are grouped into parallel execution batches such that no task in a batch depends on another task in the same batch
   3. Given a gap report on iteration 2+, the Planner produces only tasks that address unresolved gaps -- not a full re-plan of already-satisfied requirements
   4. The Planner's output is structured JSON that validates against the task graph Pydantic schema without manual parsing
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md -- TaskNode/PlannerOutput schemas and compute_batches topological sort (TDD)
+- [ ] 02-02-PLAN.md -- Planner agent with two-mode prompt strategy (TDD)
 
 ### Phase 3: Worker Execution
 **Goal**: Workers write real files to disk in parallel, blocked workers surface their blockers, and each completed batch is committed to git
@@ -91,7 +95,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-03-14 |
-| 2. Planner Agent | 0/TBD | Not started | - |
+| 2. Planner Agent | 0/2 | Planned | - |
 | 3. Worker Execution | 0/TBD | Not started | - |
 | 4. State Generator and Validator | 0/TBD | Not started | - |
 | 5. Orchestrator and CLI | 0/TBD | Not started | - |
