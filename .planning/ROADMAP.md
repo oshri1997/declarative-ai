@@ -30,11 +30,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Status transitions (planning -> building -> validating -> done/failed) are enforced by the state model -- invalid transitions raise validation errors
   4. A call to the base API wrapper returns a Pydantic-validated agent output or raises after three parse-retry attempts
   5. The spec schema accepts any language or framework in its fields -- no hardcoded Python/JS/etc. assumptions exist in the schema
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
-- [ ] 01-01-PLAN.md -- Project scaffolding, pyproject.toml, test infrastructure and RED test stubs
-- [ ] 01-02-PLAN.md -- Spec schema (SpecModel, load_spec) implementation with TDD
+- [x] 01-01-PLAN.md -- Project scaffolding, pyproject.toml, test infrastructure and RED test stubs
+- [x] 01-02-PLAN.md -- Spec schema (SpecModel, load_spec) implementation with TDD
 - [ ] 01-03-PLAN.md -- BuildState and base agent wrapper implementation with TDD
 
 ### Phase 2: Planner Agent
@@ -90,7 +90,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 1/3 | In Progress|  |
+| 1. Foundation | 2/3 | In Progress|  |
 | 2. Planner Agent | 0/TBD | Not started | - |
 | 3. Worker Execution | 0/TBD | Not started | - |
 | 4. State Generator and Validator | 0/TBD | Not started | - |
